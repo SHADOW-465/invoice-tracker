@@ -45,9 +45,18 @@
   - Body Text: `0.875rem` (14px)
   - Microcopy / Badges: `0.75rem` (12px)
 
-## Layout & Density
+## Layout, Density & Bento Grid Architecture
 
-- Max container width: `1480px`
-- Table row height: `44px` compact standard
-- Interactive controls: `32px` - `36px` height with `6px` border-radius
-- Modals: Centered, max-width `680px`, backdrop blur `4px`, keyboard dismissible (`Esc`)
+- **Max Container Width**: `1480px`
+- **Bento Grid System**: 12-column responsive layout:
+  - **Hero Realized Cash Flow Card**: `span 7` columns (`bento-card-hero`)
+  - **Receivables & Aging Health Card**: `span 5` columns (`bento-card-risk`)
+  - **Monthly Cash Flow Momentum Chart**: `span 7` columns (`bento-card-chart`)
+  - **Portfolio Multi-Currency Allocation**: `span 5` columns (`bento-card-currency`)
+  - **Responsive Collapse**: Collapses to single-column (`span 12`) on viewports $< 1080\text{px}$.
+- **Table Density**:
+  - Compact header height: `32px` (uppercase, letter-spacing `0.04em`)
+  - Data row height: `44px` compact standard
+  - Right-aligned monospace monetary values (`.mono-num`)
+- **Interactive Controls**: `32px` - `36px` height with `6px` border-radius
+- **Modals**: Centered, max-width `580px` (standard) or `780px` (large), backdrop blur `4px`, keyboard dismissible (`Esc`)

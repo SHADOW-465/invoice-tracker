@@ -85,15 +85,12 @@ export function App() {
 
       {/* Main Content Area */}
       <main className="main-content">
-        {/* 1. Executive Metric Strip */}
+        {/* 1. Executive Bento Grid Dashboard */}
         <DashboardMetrics
           store={store}
           showAnalytics={showAnalytics}
           onToggleAnalytics={() => setShowAnalytics((p) => !p)}
         />
-
-        {/* 2. Collapsible Visual Analytics */}
-        {showAnalytics && <AnalyticsCharts store={store} />}
 
         {/* 3. Main Invoice Ledger Grid */}
         <InvoiceTable
