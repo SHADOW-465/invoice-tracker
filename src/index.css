@@ -574,6 +574,34 @@ button {
   line-height: 1.3;
 }
 
+/* Interactive KPI Cards */
+.kpi-card-interactive {
+  cursor: pointer;
+  user-select: none;
+}
+
+.kpi-card-interactive:hover {
+  transform: translateY(-2px);
+  border-color: var(--brand-primary);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+}
+
+.kpi-card-active {
+  border-color: var(--brand-primary) !important;
+  box-shadow: 0 0 0 1.5px var(--brand-primary), 0 4px 14px rgba(0, 0, 0, 0.25);
+  background-color: var(--bg-surface-hover) !important;
+}
+
+.kpi-filter-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.65rem;
+  color: var(--brand-primary);
+  font-weight: 600;
+  margin-top: 1px;
+}
+
 /* Unified Realization Flow Ribbon */
 .realization-bar-container {
   background-color: var(--bg-surface);
@@ -597,7 +625,7 @@ button {
 .realization-legend-group {
   display: flex;
   align-items: center;
-  gap: 0.85rem;
+  gap: 0.5rem;
   flex-wrap: wrap;
 }
 
@@ -607,6 +635,25 @@ button {
   gap: 0.35rem;
   color: var(--ink-secondary);
   font-weight: 500;
+}
+
+.realization-legend-item-interactive {
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.realization-legend-item-interactive:hover {
+  background-color: var(--bg-surface-hover);
+  color: var(--ink-primary);
+}
+
+.realization-legend-item-active {
+  background-color: var(--brand-surface);
+  color: var(--brand-primary);
+  font-weight: 700;
 }
 
 .realization-dot {
@@ -638,6 +685,16 @@ button {
 .realization-segment {
   height: 100%;
   transition: width 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.realization-segment-interactive {
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.realization-segment-interactive:hover {
+  filter: brightness(1.25);
+  opacity: 0.9;
 }
 
 .realization-segment-success { background: var(--status-received-text); }

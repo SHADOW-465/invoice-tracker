@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { calculateFinancialMetrics, formatCurrency } from "../utils/calculations";
 
-export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics }) {
+export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onShowToast }) {
   const metrics = useMemo(() => {
     return calculateFinancialMetrics(store.invoices, store.baseCurrency);
   }, [store.invoices, store.baseCurrency]);
@@ -48,6 +48,26 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics }) {
     return due && due < new Date();
   }).length;
 
+  const currentFilter = store.statusFilter;
+
+  const scrollToTable = () => {
+    const el = document.getElementById("invoice-ledger-table");
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
+
+  const handleFilterClick = (filterTarget, label, toastType = "info") => {
+    if (store.statusFilter === filterTarget && filterTarget !== "all") {
+      store.setStatusFilter("all");
+      if (onShowToast) onShowToast("Filter cleared: showing all invoices", "info");
+    } else {
+      store.setStatusFilter(filterTarget);
+      if (onShowToast) onShowToast(label, toastType);
+    }
+    scrollToTable();
+  };
+
   return (
     <div className="metrics-dashboard-wrapper">
       {/* 1. Header with Base Currency & Analytics Toggle */}
@@ -71,10 +91,14 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics }) {
         </button>
       </div>
 
-      {/* 2. 4-Column Executive KPI Cards */}
+      {/* 2. 4-Column Executive KPI Cards (Interactive Filter Triggers) */}
       <div className="kpi-grid">
         {/* KPI 1: Gross Invoiced */}
-        <div className="kpi-card">
+        <div
+          className={`kpi-card kpi-card-interactive ${currentFilter === "all" ? "kpi-card-active" : ""}`}
+          onClick={() => handleFilterClick("all", "Showing all invoices", "info")}
+          title="Click to view all invoices in table"
+        >
           <div className="kpi-card-header">
             <span className="kpi-card-label">Total Invoiced</span>
             <div className="kpi-icon-pill kpi-icon-neutral">
@@ -87,10 +111,17 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics }) {
           <div className="kpi-subtext">
             <span>{store.invoices.length} total invoices raised</span>
           </div>
+          {currentFilter === "all" && (
+            <div className="kpi-filter-indicator">● Active filter</div>
+          )}
         </div>
 
         {/* KPI 2: Realized / Collected Cash */}
-        <div className="kpi-card kpi-card-highlight">
+        <div
+          className={`kpi-card kpi-card-highlight kpi-card-interactive ${currentFilter === "Received" ? "kpi-card-active" : ""}`}
+          onClick={() => handleFilterClick("Received", "Filtered to Collected / Settled invoices", "success")}
+          title="Click to filter to Received/Paid invoices"
+        >
           <div className="kpi-card-header">
             <span className="kpi-card-label">Collected Cash</span>
             <span className="kpi-badge kpi-badge-success">
@@ -104,10 +135,23 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics }) {
           <div className="kpi-subtext">
             <span>{settledCount} of {store.invoices.length} invoices settled</span>
           </div>
+          {currentFilter === "Received" && (
+            <div className="kpi-filter-indicator">● Active filter</div>
+          )}
         </div>
 
         {/* KPI 3: Outstanding Receivables & Aging Risk */}
-        <div className="kpi-card">
+        <div
+          className={`kpi-card kpi-card-interactive ${
+            currentFilter === "Outstanding" || currentFilter === "Pending" || currentFilter === "Overdue"
+              ? "kpi-card-active"
+              : ""
+          }`}
+          onClick={() =>
+            handleFilterClick("Outstanding", "Filtered to Outstanding Receivables (Pending & Overdue)", "info")
+          }
+          title="Click to filter to unpaid/outstanding receivables"
+        >
           <div className="kpi-card-header">
             <span className="kpi-card-label">Outstanding Receivables</span>
             {hasOverdue ? (
@@ -139,10 +183,17 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics }) {
               <span>All invoices currently up to date</span>
             )}
           </div>
+          {(currentFilter === "Outstanding" || currentFilter === "Pending" || currentFilter === "Overdue") && (
+            <div className="kpi-filter-indicator">● Active filter</div>
+          )}
         </div>
 
         {/* KPI 4: Tax Withheld & DSO Speed */}
-        <div className="kpi-card">
+        <div
+          className={`kpi-card kpi-card-interactive ${currentFilter === "TaxDeducted" ? "kpi-card-active" : ""}`}
+          onClick={() => handleFilterClick("TaxDeducted", "Filtered to invoices with Tax / TDS Withholding", "info")}
+          title="Click to filter to invoices with tax withholding deductions"
+        >
           <div className="kpi-card-header">
             <span className="kpi-card-label">Tax / TDS Withheld</span>
             <div className="kpi-icon-pill kpi-icon-neutral">
@@ -155,31 +206,50 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics }) {
           <div className="kpi-subtext">
             <span>Avg DSO Speed: <strong>{metrics.avgDaysToCollect} days</strong></span>
           </div>
+          {currentFilter === "TaxDeducted" && (
+            <div className="kpi-filter-indicator">● Active filter</div>
+          )}
         </div>
       </div>
 
-      {/* 3. Unified Realization Flow Ribbon */}
+      {/* 3. Unified Realization Flow Ribbon (Interactive Segment Clicking) */}
       <div className="realization-bar-container">
         <div className="realization-bar-header">
           <div className="realization-legend-group">
-            <div className="realization-legend-item">
+            <div
+              className={`realization-legend-item realization-legend-item-interactive ${currentFilter === "Received" ? "realization-legend-item-active" : ""}`}
+              onClick={() => handleFilterClick("Received", "Filtered to Realized Cash invoices", "success")}
+              title="Click to filter to Realized Cash"
+            >
               <span className="realization-dot realization-dot-success" />
               <span>Realized ({realizedPct}%)</span>
             </div>
             {parseFloat(taxPct) > 0 && (
-              <div className="realization-legend-item">
+              <div
+                className={`realization-legend-item realization-legend-item-interactive ${currentFilter === "TaxDeducted" ? "realization-legend-item-active" : ""}`}
+                onClick={() => handleFilterClick("TaxDeducted", "Filtered to Tax Withheld invoices", "info")}
+                title="Click to filter to Tax Withheld"
+              >
                 <span className="realization-dot realization-dot-tax" />
                 <span>Tax Withheld ({taxPct}%)</span>
               </div>
             )}
             {parseFloat(pendingPct) > 0 && (
-              <div className="realization-legend-item">
+              <div
+                className={`realization-legend-item realization-legend-item-interactive ${currentFilter === "Pending" ? "realization-legend-item-active" : ""}`}
+                onClick={() => handleFilterClick("Pending", "Filtered to Pending invoices", "info")}
+                title="Click to filter to Pending invoices"
+              >
                 <span className="realization-dot realization-dot-pending" />
                 <span>Pending ({pendingPct}%)</span>
               </div>
             )}
             {parseFloat(overduePct) > 0 && (
-              <div className="realization-legend-item">
+              <div
+                className={`realization-legend-item realization-legend-item-interactive ${currentFilter === "Overdue" ? "realization-legend-item-active" : ""}`}
+                onClick={() => handleFilterClick("Overdue", "Filtered to Overdue invoices", "error")}
+                title="Click to filter to Overdue invoices"
+              >
                 <span className="realization-dot realization-dot-danger" />
                 <span>Overdue ({overduePct}%)</span>
               </div>
@@ -192,29 +262,33 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics }) {
 
         <div className="realization-track">
           <div
-            className="realization-segment realization-segment-success"
+            className="realization-segment realization-segment-success realization-segment-interactive"
             style={{ width: `${realizedPct}%` }}
-            title={`Realized Cash: ${formatCurrency(metrics.totalReceivedBase, store.baseCurrency)} (${realizedPct}%)`}
+            onClick={() => handleFilterClick("Received", "Filtered to Realized Cash invoices", "success")}
+            title={`Realized Cash: ${formatCurrency(metrics.totalReceivedBase, store.baseCurrency)} (${realizedPct}%) — Click to filter`}
           />
           {parseFloat(taxPct) > 0 && (
             <div
-              className="realization-segment realization-segment-tax"
+              className="realization-segment realization-segment-tax realization-segment-interactive"
               style={{ width: `${taxPct}%` }}
-              title={`Tax Withheld: ${formatCurrency(metrics.totalTaxWithheldBase, store.baseCurrency)} (${taxPct}%)`}
+              onClick={() => handleFilterClick("TaxDeducted", "Filtered to Tax Withheld invoices", "info")}
+              title={`Tax Withheld: ${formatCurrency(metrics.totalTaxWithheldBase, store.baseCurrency)} (${taxPct}%) — Click to filter`}
             />
           )}
           {parseFloat(pendingPct) > 0 && (
             <div
-              className="realization-segment realization-segment-pending"
+              className="realization-segment realization-segment-pending realization-segment-interactive"
               style={{ width: `${pendingPct}%` }}
-              title={`Pending: ${formatCurrency(metrics.totalPendingBase, store.baseCurrency)} (${pendingPct}%)`}
+              onClick={() => handleFilterClick("Pending", "Filtered to Pending invoices", "info")}
+              title={`Pending: ${formatCurrency(metrics.totalPendingBase, store.baseCurrency)} (${pendingPct}%) — Click to filter`}
             />
           )}
           {parseFloat(overduePct) > 0 && (
             <div
-              className="realization-segment realization-segment-danger"
+              className="realization-segment realization-segment-danger realization-segment-interactive"
               style={{ width: `${overduePct}%` }}
-              title={`Overdue: ${formatCurrency(metrics.totalOverdueBase, store.baseCurrency)} (${overduePct}%)`}
+              onClick={() => handleFilterClick("Overdue", "Filtered to Overdue invoices", "error")}
+              title={`Overdue: ${formatCurrency(metrics.totalOverdueBase, store.baseCurrency)} (${overduePct}%) — Click to filter`}
             />
           )}
         </div>

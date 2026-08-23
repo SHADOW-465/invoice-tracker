@@ -94,6 +94,7 @@ export function App() {
           store={store}
           showAnalytics={showAnalytics}
           onToggleAnalytics={() => setShowAnalytics((p) => !p)}
+          onShowToast={showToast}
         />
 
         {/* 3. Main Invoice Ledger Grid */}

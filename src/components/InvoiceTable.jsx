@@ -63,13 +63,21 @@ export function InvoiceTable({
 
   // Count per status for segmented tabs
   const statusCounts = useMemo(() => {
-    const counts = { all: invoices.length, Received: 0, Pending: 0, Overdue: 0, Draft: 0 };
+    const counts = { all: invoices.length, Received: 0, Pending: 0, Overdue: 0, Draft: 0, Outstanding: 0, TaxDeducted: 0 };
     invoices.forEach((inv) => {
       const aging = calculateAging(inv);
-      if (inv.status === "Received") counts.Received += 1;
-      else if (aging.isOverdue) counts.Overdue += 1;
-      else if (inv.status === "Pending") counts.Pending += 1;
-      else if (inv.status === "Draft") counts.Draft += 1;
+      if (inv.status === "Received") {
+        counts.Received += 1;
+      } else {
+        counts.Outstanding += 1;
+        if (aging.isOverdue) counts.Overdue += 1;
+        else if (inv.status === "Pending") counts.Pending += 1;
+        else if (inv.status === "Draft") counts.Draft += 1;
+      }
+
+      if (Number(inv.taxAmount || 0) > 0 || (inv.remarks && inv.remarks.toLowerCase().includes("tax"))) {
+        counts.TaxDeducted += 1;
+      }
     });
     return counts;
   }, [invoices]);
@@ -156,7 +164,7 @@ export function InvoiceTable({
   ], []);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+    <div id="invoice-ledger-table" style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
       {/* 1. Header Toolbar with Segmented Tabs & Filters */}
       <div className="ledger-header-bar">
         {/* Segmented Status Tabs */}
@@ -189,6 +197,30 @@ export function InvoiceTable({
             <span>Overdue</span>
             <span className="tab-badge tab-badge-overdue">{statusCounts.Overdue}</span>
           </button>
+          {statusFilter === "Outstanding" && (
+            <button
+              className="segmented-tab-btn active"
+              onClick={() => setStatusFilter("all")}
+              title="Click to clear filter and show all"
+            >
+              <span>Outstanding</span>
+              <span className="tab-badge tab-badge-pending">{statusCounts.Outstanding}</span>
+              <X size={10} style={{ marginLeft: 2 }} />
+            </button>
+          )}
+          {statusFilter === "TaxDeducted" && (
+            <button
+              className="segmented-tab-btn active"
+              onClick={() => setStatusFilter("all")}
+              title="Click to clear filter and show all"
+            >
+              <span>Tax Withheld</span>
+              <span className="tab-badge" style={{ background: "oklch(0.30 0.08 290)", color: "oklch(0.90 0.14 290)" }}>
+                {statusCounts.TaxDeducted}
+              </span>
+              <X size={10} style={{ marginLeft: 2 }} />
+            </button>
+          )}
         </div>
 
         {/* Right Search & Filter Controls */}
@@ -321,6 +353,21 @@ export function InvoiceTable({
                         No matching invoices found
                       </p>
                       <p style={{ fontSize: "var(--text-xs)" }}>Adjust filters or create a new invoice</p>
+                      {(statusFilter !== "all" || currencyFilter !== "all" || monthFilter !== "all" || searchQuery) && (
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          style={{ marginTop: "0.5rem" }}
+                          onClick={() => {
+                            setStatusFilter("all");
+                            setCurrencyFilter("all");
+                            setMonthFilter("all");
+                            setSearchQuery("");
+                          }}
+                        >
+                          Clear All Filters
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

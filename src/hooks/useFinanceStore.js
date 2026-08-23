@@ -313,9 +313,14 @@ export function useFinanceStore() {
         if (statusFilter !== "all") {
           const aging = calculateAging(inv);
           if (statusFilter === "Overdue") {
-            if (!aging.isOverdue) return false;
+            if (!aging.isOverdue || inv.status === "Received") return false;
           } else if (statusFilter === "Pending") {
             if (inv.status !== "Pending" || aging.isOverdue) return false;
+          } else if (statusFilter === "Outstanding") {
+            if (inv.status === "Received") return false;
+          } else if (statusFilter === "TaxDeducted") {
+            const hasTax = Number(inv.taxAmount || 0) > 0 || (inv.remarks && inv.remarks.toLowerCase().includes("tax"));
+            if (!hasTax) return false;
           } else {
             if (inv.status !== statusFilter) return false;
           }
