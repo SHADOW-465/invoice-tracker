@@ -5,6 +5,8 @@ import { getMonthName, calculateDueDate, calculateAging } from "../utils/calcula
 
 const STORAGE_KEYS = {
   INVOICES: "apex_finance_invoices_v1",
+  WORKSPACES: "apex_finance_workspaces_v1",
+  ACTIVE_WORKSPACE: "apex_finance_active_workspace_v1",
   CLIENTS: "apex_finance_clients_v1",
   SETTINGS: "apex_finance_settings_v1",
   THEME: "apex_finance_theme_v1",
@@ -12,83 +14,93 @@ const STORAGE_KEYS = {
 };
 
 const DEFAULT_SETTINGS = {
-  companyName: "SnS Global Solutions",
-  companyEmail: "accounts@snsglobal.com",
-  companyAddress: "100 Financial Way, Suite 400, New York, NY 10001",
-  taxId: "US-987654321",
+  companyName: "Simon & Son Global",
+  companyEmail: "accounts@simonandson.com",
+  companyAddress: "Navalur, OMR Road, Chennai, Tamil Nadu 600130",
+  taxId: "IN-33AAACS1234F1Z5",
   invoicePrefix: "SnS",
   defaultPaymentTerms: "Net 30",
   defaultCurrency: "USD",
-  bankDetails: "JPMorgan Chase Bank\nAccount: 4829-1092-4411\nRouting: 021000021\nSwift: CHASUS33"
+  bankDetails: "HDFC Bank\nAccount: 5020-0012-3456-78\nIFSC: HDFC0001234\nBranch: Navalur, Chennai"
 };
 
 export function useFinanceStore() {
-  // 1. Invoices state
-  const [invoices, setInvoices] = useState(() => {
+  // 1. Workspaces state (Multi-Ledger Support)
+  const [workspaces, setWorkspaces] = useState(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEYS.INVOICES);
-      return saved ? JSON.parse(saved) : INITIAL_INVOICES;
+      const saved = localStorage.getItem(STORAGE_KEYS.WORKSPACES);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+      // Migrate legacy invoices if present
+      const legacySaved = localStorage.getItem(STORAGE_KEYS.INVOICES);
+      const initialInv = legacySaved ? JSON.parse(legacySaved) : INITIAL_INVOICES;
+      return [
+        {
+          id: "default",
+          name: "Master Ledger",
+          invoices: initialInv,
+          createdAt: new Date().toISOString()
+        }
+      ];
     } catch (e) {
-      console.error("Error reading invoices from localStorage", e);
-      return INITIAL_INVOICES;
+      return [
+        {
+          id: "default",
+          name: "Master Ledger",
+          invoices: INITIAL_INVOICES,
+          createdAt: new Date().toISOString()
+        }
+      ];
     }
   });
 
-  // 2. Clients state
-  const [clients, setClients] = useState(() => {
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEYS.CLIENTS);
-      return saved ? JSON.parse(saved) : INITIAL_CLIENTS;
+      return localStorage.getItem(STORAGE_KEYS.ACTIVE_WORKSPACE) || "default";
     } catch (e) {
-      return INITIAL_CLIENTS;
+      return "default";
     }
   });
 
-  // 3. Settings state
-  const [settings, setSettings] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
-      return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS;
-    } catch (e) {
-      return DEFAULT_SETTINGS;
-    }
-  });
+  // Current active workspace
+  const activeWorkspace = useMemo(() => {
+    return workspaces.find(w => w.id === activeWorkspaceId) || workspaces[0] || {
+      id: "default",
+      name: "Master Ledger",
+      invoices: []
+    };
+  }, [workspaces, activeWorkspaceId]);
 
-  // 4. Base Currency state
-  const [baseCurrency, setBaseCurrency] = useState(() => {
-    try {
-      return localStorage.getItem(STORAGE_KEYS.BASE_CURRENCY) || "USD";
-    } catch (e) {
-      return "USD";
-    }
-  });
+  const invoices = useMemo(() => activeWorkspace.invoices || [], [activeWorkspace]);
 
-  // 5. Theme state
-  const [theme, setTheme] = useState(() => {
-    try {
-      return localStorage.getItem(STORAGE_KEYS.THEME) || "dark";
-    } catch (e) {
-      return "dark";
-    }
-  });
+  // Updater for active workspace's invoices
+  const setInvoices = useCallback((updater) => {
+    setWorkspaces(prev => {
+      return prev.map(w => {
+        if (w.id === activeWorkspaceId) {
+          const nextInvoices = typeof updater === "function" ? updater(w.invoices || []) : updater;
+          return { ...w, invoices: nextInvoices };
+        }
+        return w;
+      });
+    });
+  }, [activeWorkspaceId]);
 
-  // 6. Filter & Search State
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [currencyFilter, setCurrencyFilter] = useState("all");
-  const [monthFilter, setMonthFilter] = useState("all");
-  const [clientFilter, setClientFilter] = useState("all");
-  const [sortField, setSortField] = useState("raisedOn");
-  const [sortDirection, setSortDirection] = useState("desc");
-
-  // Sync to localStorage
+  // Persist workspaces to localStorage
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEYS.INVOICES, JSON.stringify(invoices));
+      localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaces));
+      localStorage.setItem(STORAGE_KEYS.ACTIVE_WORKSPACE, activeWorkspaceId);
+      // Keep legacy key in sync for backward compatibility
+      if (activeWorkspace) {
+        localStorage.setItem(STORAGE_KEYS.INVOICES, JSON.stringify(activeWorkspace.invoices || []));
+      }
     } catch (e) {
-      console.error("Failed to persist invoices", e);
+      console.error("Failed to persist workspaces", e);
     }
-  }, [invoices]);
+  }, [workspaces, activeWorkspaceId, activeWorkspace]);
 
   useEffect(() => {
     try {
@@ -126,6 +138,72 @@ export function useFinanceStore() {
   const toggleTheme = useCallback(() => {
     setTheme(prev => (prev === "dark" ? "light" : "dark"));
   }, []);
+
+  // Workspace / Ledger Switcher & Management
+  const createWorkspace = useCallback((name, initialInvoices = []) => {
+    const newId = `ws_${Date.now()}`;
+    const newWs = {
+      id: newId,
+      name: name.trim() || "Untitled Ledger",
+      invoices: initialInvoices,
+      createdAt: new Date().toISOString()
+    };
+    setWorkspaces(prev => [...prev, newWs]);
+    setActiveWorkspaceId(newId);
+    return newId;
+  }, []);
+
+  const switchWorkspace = useCallback((id) => {
+    setActiveWorkspaceId(id);
+  }, []);
+
+  const deleteWorkspace = useCallback((id) => {
+    setWorkspaces(prev => {
+      if (prev.length <= 1) {
+        return [{ id: "default", name: "Master Ledger", invoices: [], createdAt: new Date().toISOString() }];
+      }
+      return prev.filter(w => w.id !== id);
+    });
+    setActiveWorkspaceId(prevId => {
+      if (prevId === id) {
+        const remaining = workspaces.filter(w => w.id !== id);
+        return remaining[0]?.id || "default";
+      }
+      return prevId;
+    });
+  }, [workspaces]);
+
+  const renameWorkspace = useCallback((id, newName) => {
+    setWorkspaces(prev => prev.map(w => w.id === id ? { ...w, name: newName.trim() || w.name } : w));
+  }, []);
+
+  const clearCurrentLedger = useCallback(() => {
+    setInvoices([]);
+  }, [setInvoices]);
+
+  const resetToSampleData = useCallback(() => {
+    setInvoices(INITIAL_INVOICES);
+    setClients(INITIAL_CLIENTS);
+    setSettings(DEFAULT_SETTINGS);
+  }, [setInvoices]);
+
+  const importInvoices = useCallback((newInvoices, mode = "merge", workspaceName = null) => {
+    if (mode === "new_workspace") {
+      const name = workspaceName || `Ledger (${new Date().toLocaleDateString()})`;
+      createWorkspace(name, newInvoices);
+    } else if (mode === "replace") {
+      setInvoices(newInvoices);
+    } else {
+      // Merge by invoiceNo
+      setInvoices(prev => {
+        const existingMap = new Map(prev.map(i => [i.invoiceNo.toLowerCase(), i]));
+        newInvoices.forEach(newItem => {
+          existingMap.set(newItem.invoiceNo.toLowerCase(), newItem);
+        });
+        return Array.from(existingMap.values());
+      });
+    }
+  }, [createWorkspace, setInvoices]);
 
   // Helper to suggest next invoice number
   const getNextInvoiceNumber = useCallback(() => {
@@ -196,7 +274,7 @@ export function useFinanceStore() {
     }
 
     return newInvoice;
-  }, [getNextInvoiceNumber, settings.defaultCurrency]);
+  }, [getNextInvoiceNumber, settings.defaultCurrency, setInvoices]);
 
   const updateInvoice = useCallback((id, updatedFields) => {
     setInvoices(prev =>
@@ -217,11 +295,11 @@ export function useFinanceStore() {
         return merged;
       })
     );
-  }, []);
+  }, [setInvoices]);
 
   const deleteInvoice = useCallback((id) => {
     setInvoices(prev => prev.filter(inv => inv.id !== id));
-  }, []);
+  }, [setInvoices]);
 
   const duplicateInvoice = useCallback((id) => {
     const target = invoices.find(inv => inv.id === id);
@@ -242,7 +320,7 @@ export function useFinanceStore() {
     };
 
     setInvoices(prev => [duplicated, ...prev]);
-  }, [invoices, getNextInvoiceNumber]);
+  }, [invoices, getNextInvoiceNumber, setInvoices]);
 
   const markInvoiceAsPaid = useCallback((id, { receivedOn, taxRate = 0, taxAmount = 0, netReceived, remarks }) => {
     setInvoices(prev =>
@@ -270,28 +348,7 @@ export function useFinanceStore() {
         };
       })
     );
-  }, []);
-
-  const importInvoices = useCallback((newInvoices, mode = "merge") => {
-    if (mode === "replace") {
-      setInvoices(newInvoices);
-    } else {
-      // Merge by invoiceNo
-      setInvoices(prev => {
-        const existingMap = new Map(prev.map(i => [i.invoiceNo.toLowerCase(), i]));
-        newInvoices.forEach(newItem => {
-          existingMap.set(newItem.invoiceNo.toLowerCase(), newItem);
-        });
-        return Array.from(existingMap.values());
-      });
-    }
-  }, []);
-
-  const resetToSampleData = useCallback(() => {
-    setInvoices(INITIAL_INVOICES);
-    setClients(INITIAL_CLIENTS);
-    setSettings(DEFAULT_SETTINGS);
-  }, []);
+  }, [setInvoices]);
 
   // Filtered & Sorted Invoices
   const filteredInvoices = useMemo(() => {
@@ -368,6 +425,9 @@ export function useFinanceStore() {
   return {
     invoices,
     filteredInvoices,
+    workspaces,
+    activeWorkspaceId,
+    activeWorkspace,
     clients,
     settings,
     baseCurrency,
@@ -396,6 +456,11 @@ export function useFinanceStore() {
     markInvoiceAsPaid,
     importInvoices,
     resetToSampleData,
+    clearCurrentLedger,
+    createWorkspace,
+    switchWorkspace,
+    deleteWorkspace,
+    renameWorkspace,
     getNextInvoiceNumber,
     setClients
   };

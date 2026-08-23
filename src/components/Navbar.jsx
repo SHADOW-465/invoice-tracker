@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useMemo } from "react";
 import {
   Plus,
   Download,
@@ -6,14 +6,15 @@ import {
   Moon,
   Sun,
   Users,
-  RotateCcw,
   Settings,
-  ReceiptText
+  ReceiptText,
+  FolderKanban,
+  PlusCircle
 } from "lucide-react";
 import { CURRENCIES } from "../types/finance";
 import { exportToExcel, parseExcelFile } from "../utils/excelHandler";
 import { CustomSelect } from "./CustomSelect";
-import { ConfirmDialog } from "./ConfirmDialog";
+import { ImportModal } from "./ImportModal";
 
 export function Navbar({
   store,
@@ -23,11 +24,17 @@ export function Navbar({
   onShowToast
 }) {
   const fileInputRef = useRef(null);
+  const [importModalData, setImportModalData] = useState({
+    isOpen: false,
+    file: null,
+    parsedInvoices: []
+  });
 
   const handleExport = () => {
     try {
-      exportToExcel(store.invoices, `Invoice_Tracker_${new Date().toISOString().split("T")[0]}.xlsx`);
-      onShowToast("Exported invoices to Excel!");
+      const ledgerName = (store.activeWorkspace?.name || "Invoice_Tracker").replace(/[^a-zA-Z0-9_-]/g, "_");
+      exportToExcel(store.invoices, `${ledgerName}_${new Date().toISOString().split("T")[0]}.xlsx`);
+      onShowToast(`Exported "${store.activeWorkspace?.name || 'Ledger'}" to Excel!`);
     } catch (e) {
       console.error(e);
       onShowToast("Failed to export Excel file", "error");
@@ -44,8 +51,11 @@ export function Navbar({
         onShowToast("No invoice rows found in uploaded file", "error");
         return;
       }
-      store.importInvoices(parsed, "merge");
-      onShowToast(`Imported ${parsed.length} invoices successfully!`);
+      setImportModalData({
+        isOpen: true,
+        file,
+        parsedInvoices: parsed
+      });
     } catch (err) {
       console.error("Import error", err);
       onShowToast("Failed to parse Excel file. Check format.", "error");
@@ -54,24 +64,69 @@ export function Navbar({
     }
   };
 
-  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const handleConfirmImport = (invoices, mode, workspaceName) => {
+    store.importInvoices(invoices, mode, workspaceName);
+    if (mode === "new_workspace") {
+      onShowToast(`Created new ledger "${workspaceName}" with ${invoices.length} invoices!`, "success");
+    } else {
+      onShowToast(`Imported ${invoices.length} invoices into "${store.activeWorkspace?.name}"!`, "success");
+    }
+  };
 
-  const handleResetConfirmed = () => {
-    store.resetToSampleData();
-    onShowToast("Reset ledger to original Excel records", "info");
+  // Workspace options for CustomSelect
+  const workspaceOptions = useMemo(() => {
+    const list = (store.workspaces || []).map((w) => ({
+      value: w.id,
+      label: w.name,
+      badge: `${w.invoices?.length || 0}`,
+      sublabel: `Created ${new Date(w.createdAt || Date.now()).toLocaleDateString()}`
+    }));
+
+    list.push({
+      value: "__NEW_WORKSPACE__",
+      label: "+ Create New Ledger",
+      sublabel: "Blank workspace"
+    });
+
+    return list;
+  }, [store.workspaces]);
+
+  const handleWorkspaceChange = (val) => {
+    if (val === "__NEW_WORKSPACE__") {
+      const num = (store.workspaces?.length || 0) + 1;
+      const newName = `Ledger Workspace ${num}`;
+      store.createWorkspace(newName, []);
+      onShowToast(`Created new blank ledger "${newName}"`, "info");
+    } else {
+      store.switchWorkspace(val);
+      const target = store.workspaces?.find((w) => w.id === val);
+      onShowToast(`Switched to ledger "${target?.name || 'Ledger'}"`, "info");
+    }
   };
 
   return (
     <>
       <header className="navbar">
         <div className="navbar-inner">
-          {/* Brand: Invoice Tracker */}
+          {/* Brand: Invoice Tracker & Workspace Switcher */}
           <div className="brand-section">
             <div className="brand-logo-badge" title="Invoice Tracker">
               <ReceiptText size={18} strokeWidth={2.2} />
             </div>
             <div>
-              <h1 className="brand-title">Invoice Tracker</h1>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <h1 className="brand-title">Invoice Tracker</h1>
+                {/* Multi-Ledger / Workspace Selector */}
+                <div style={{ display: "inline-flex", alignItems: "center" }} title="Switch between separated Excel ledgers">
+                  <CustomSelect
+                    value={store.activeWorkspaceId}
+                    onChange={handleWorkspaceChange}
+                    options={workspaceOptions}
+                    size="sm"
+                    align="left"
+                  />
+                </div>
+              </div>
               <p className="brand-subtitle">{store.settings.companyName || "Financial Receivables Ledger"}</p>
             </div>
           </div>
@@ -138,18 +193,9 @@ export function Navbar({
             <button
               className="btn btn-secondary btn-sm btn-icon"
               onClick={onOpenSettings}
-              title="Business Preferences"
+              title="Business Preferences & Storage Reset"
             >
               <Settings size={14} />
-            </button>
-
-            {/* Reset / Sample Data */}
-            <button
-              className="btn btn-ghost btn-sm btn-icon"
-              onClick={() => setIsResetConfirmOpen(true)}
-              title="Reset to Original Excel Records"
-            >
-              <RotateCcw size={14} />
             </button>
 
             {/* Theme Switcher */}
@@ -174,15 +220,14 @@ export function Navbar({
         </div>
       </header>
 
-      {/* Reset Confirmation Dialog */}
-      <ConfirmDialog
-        isOpen={isResetConfirmOpen}
-        onClose={() => setIsResetConfirmOpen(false)}
-        onConfirm={handleResetConfirmed}
-        title="Reset to original Excel records?"
-        message="This will reset all invoices and client records back to the original 5 seed entries from Invoice Tracker.xlsx. Any newly added invoices will be replaced."
-        confirmText="Reset Ledger Data"
-        variant="warning"
+      {/* Import Modal */}
+      <ImportModal
+        isOpen={importModalData.isOpen}
+        onClose={() => setImportModalData({ isOpen: false, file: null, parsedInvoices: [] })}
+        file={importModalData.file}
+        parsedInvoices={importModalData.parsedInvoices}
+        activeWorkspaceName={store.activeWorkspace?.name || "Master Ledger"}
+        onConfirmImport={handleConfirmImport}
       />
     </>
   );

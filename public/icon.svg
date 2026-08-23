@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#022c22" />
+    </linearGradient>
+    <linearGradient id="emeraldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24" />
+      <stop offset="100%" stop-color="#d97706" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background rounded squircle -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" stroke="#34d399" stroke-width="8" stroke-opacity="0.3" />
+
+  <!-- Outer Ring Accent -->
+  <circle cx="256" cy="256" r="180" fill="none" stroke="url(#emeraldGrad)" stroke-width="6" stroke-dasharray="16 12" opacity="0.4" />
+
+  <!-- Central Receipt & S Shield Icon -->
+  <g transform="translate(136, 120)">
+    <!-- Document Body -->
+    <rect x="0" y="0" width="240" height="280" rx="20" fill="#1e293b" stroke="#334155" stroke-width="6" />
+    <!-- Header Bar -->
+    <rect x="0" y="0" width="240" height="64" rx="20" fill="url(#emeraldGrad)" />
+    <!-- Invoice Symbol -->
+    <path d="M40 32 L80 32 M100 32 L200 32" stroke="#ffffff" stroke-width="8" stroke-linecap="round" />
+    <!-- Line Items -->
+    <rect x="36" y="96" width="168" height="12" rx="6" fill="#475569" />
+    <rect x="36" y="128" width="120" height="12" rx="6" fill="#475569" />
+    <rect x="36" y="160" width="144" height="12" rx="6" fill="#475569" />
+    
+    <!-- Currency / Check Badge -->
+    <circle cx="170" cy="215" r="42" fill="url(#goldGrad)" />
+    <text x="170" y="228" font-family="system-ui, -apple-system, sans-serif" font-size="36" font-weight="900" fill="#0f172a" text-anchor="middle">$</text>
+  </g>
+</svg>

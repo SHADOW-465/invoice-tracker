@@ -21,3 +21,6 @@ PRODUCT.md
 docs/
 graphify-out/
 gr/
+release/
+dist-desktop/
+

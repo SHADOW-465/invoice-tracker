@@ -148,6 +148,7 @@ export function App() {
         settings={store.settings}
         onSaveSettings={store.setSettings}
         onShowToast={showToast}
+        store={store}
       />
 
       {/* Toast Notification Stack */}
