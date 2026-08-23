@@ -88,6 +88,53 @@ export function useFinanceStore() {
     });
   }, [activeWorkspaceId]);
 
+  // 2. Clients state
+  const [clients, setClients] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.CLIENTS);
+      return saved ? JSON.parse(saved) : INITIAL_CLIENTS;
+    } catch (e) {
+      return INITIAL_CLIENTS;
+    }
+  });
+
+  // 3. Settings state
+  const [settings, setSettings] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+      return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS;
+    } catch (e) {
+      return DEFAULT_SETTINGS;
+    }
+  });
+
+  // 4. Base Currency state
+  const [baseCurrency, setBaseCurrency] = useState(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.BASE_CURRENCY) || "USD";
+    } catch (e) {
+      return "USD";
+    }
+  });
+
+  // 5. Theme state
+  const [theme, setTheme] = useState(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.THEME) || "dark";
+    } catch (e) {
+      return "dark";
+    }
+  });
+
+  // 6. Filter & Search State
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [currencyFilter, setCurrencyFilter] = useState("all");
+  const [monthFilter, setMonthFilter] = useState("all");
+  const [clientFilter, setClientFilter] = useState("all");
+  const [sortField, setSortField] = useState("raisedOn");
+  const [sortDirection, setSortDirection] = useState("desc");
+
   // Persist workspaces to localStorage
   useEffect(() => {
     try {
