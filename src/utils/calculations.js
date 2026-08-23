@@ -249,3 +249,38 @@ export function calculateFinancialMetrics(invoices, baseCurrency = "USD", rates 
     agingBuckets
   };
 }
+
+/**
+ * Deterministic, accessible color generator for client avatar badges
+ */
+export function getClientColor(clientName = "") {
+  const name = String(clientName).trim().toUpperCase();
+  const presets = {
+    A: { bg: "oklch(0.24 0.07 145)", text: "oklch(0.88 0.16 145)", border: "oklch(0.38 0.10 145)" },
+    B: { bg: "oklch(0.24 0.07 260)", text: "oklch(0.88 0.16 260)", border: "oklch(0.38 0.10 260)" },
+    V: { bg: "oklch(0.25 0.07 75)",  text: "oklch(0.88 0.14 75)",  border: "oklch(0.38 0.09 75)" },
+    D: { bg: "oklch(0.24 0.07 215)", text: "oklch(0.88 0.15 215)", border: "oklch(0.38 0.10 215)" },
+    E: { bg: "oklch(0.24 0.08 340)", text: "oklch(0.88 0.16 340)", border: "oklch(0.38 0.10 340)" }
+  };
+
+  if (presets[name]) return presets[name];
+
+  const palette = [
+    { bg: "oklch(0.24 0.07 145)", text: "oklch(0.88 0.16 145)", border: "oklch(0.38 0.10 145)" },
+    { bg: "oklch(0.24 0.07 260)", text: "oklch(0.88 0.16 260)", border: "oklch(0.38 0.10 260)" },
+    { bg: "oklch(0.25 0.07 75)",  text: "oklch(0.88 0.14 75)",  border: "oklch(0.38 0.09 75)" },
+    { bg: "oklch(0.24 0.07 215)", text: "oklch(0.88 0.15 215)", border: "oklch(0.38 0.10 215)" },
+    { bg: "oklch(0.24 0.08 340)", text: "oklch(0.88 0.16 340)", border: "oklch(0.38 0.10 340)" },
+    { bg: "oklch(0.24 0.07 185)", text: "oklch(0.88 0.15 185)", border: "oklch(0.38 0.10 185)" },
+    { bg: "oklch(0.24 0.07 290)", text: "oklch(0.88 0.16 290)", border: "oklch(0.38 0.10 290)" },
+    { bg: "oklch(0.25 0.07 40)",  text: "oklch(0.88 0.15 40)",  border: "oklch(0.38 0.10 40)" }
+  ];
+
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % palette.length;
+  return palette[index];
+}
+

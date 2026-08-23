@@ -1,22 +1,24 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   Search,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
   CheckCircle,
-  Eye,
   Edit2,
   Copy,
   Trash2,
   AlertTriangle,
   Receipt,
   Check,
-  X
+  X,
+  Sparkles
 } from "lucide-react";
-import { MONTH_NAMES } from "../utils/calculations";
+import { MONTH_NAMES, calculateAging, formatDate, formatCurrency, getClientColor } from "../utils/calculations";
 import { CURRENCIES } from "../types/finance";
-import { calculateAging, formatDate, formatCurrency } from "../utils/calculations";
+import { CustomSelect } from "./CustomSelect";
+import { InlineStatusDropdown } from "./InlineStatusDropdown";
+import { InlinePaymentModeDropdown } from "./InlinePaymentModeDropdown";
 
 export function InvoiceTable({
   store,
@@ -36,21 +38,20 @@ export function InvoiceTable({
     setCurrencyFilter,
     monthFilter,
     setMonthFilter,
-    clientFilter,
-    setClientFilter,
     sortField,
     sortDirection,
     setSortField,
     setSortDirection,
     duplicateInvoice,
-    deleteInvoice
+    deleteInvoice,
+    updateInvoice
   } = store;
 
   // Selected rows for bulk actions
   const [selectedIds, setSelectedIds] = useState(new Set());
 
   // Count per status for segmented tabs
-  const statusCounts = React.useMemo(() => {
+  const statusCounts = useMemo(() => {
     const counts = { all: invoices.length, Received: 0, Pending: 0, Overdue: 0, Draft: 0 };
     invoices.forEach((inv) => {
       const aging = calculateAging(inv);
@@ -76,7 +77,8 @@ export function InvoiceTable({
     return sortDirection === "asc" ? <ArrowUp size={11} color="var(--brand-primary)" /> : <ArrowDown size={11} color="var(--brand-primary)" />;
   };
 
-  const toggleSelectAll = () => {
+  const toggleSelectAll = (e) => {
+    e.stopPropagation();
     if (selectedIds.size === filteredInvoices.length) {
       setSelectedIds(new Set());
     } else {
@@ -84,7 +86,8 @@ export function InvoiceTable({
     }
   };
 
-  const toggleSelectRow = (id) => {
+  const toggleSelectRow = (id, e) => {
+    if (e) e.stopPropagation();
     const next = new Set(selectedIds);
     if (next.has(id)) next.delete(id);
     else next.add(id);
@@ -106,6 +109,26 @@ export function InvoiceTable({
     }
   };
 
+  // Currency options for CustomSelect
+  const currencyOptions = useMemo(() => [
+    { value: "all", label: "All Currencies" },
+    ...CURRENCIES.map((c) => ({
+      value: c.code,
+      label: `${c.code} (${c.symbol})`,
+      badge: c.code,
+      sublabel: c.name
+    }))
+  ], []);
+
+  // Month options for CustomSelect
+  const monthOptions = useMemo(() => [
+    { value: "all", label: "All Months" },
+    ...MONTH_NAMES.map((m) => ({
+      value: m,
+      label: m
+    }))
+  ], []);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
       {/* 1. Header Toolbar with Segmented Tabs & Filters */}
@@ -124,21 +147,21 @@ export function InvoiceTable({
             onClick={() => setStatusFilter("Received")}
           >
             <span>Received</span>
-            <span className="tab-badge" style={{ color: "var(--status-received-text)" }}>{statusCounts.Received}</span>
+            <span className="tab-badge tab-badge-success">{statusCounts.Received}</span>
           </button>
           <button
             className={`segmented-tab-btn ${statusFilter === "Pending" ? "active" : ""}`}
             onClick={() => setStatusFilter("Pending")}
           >
             <span>Pending</span>
-            <span className="tab-badge" style={{ color: "var(--status-pending-text)" }}>{statusCounts.Pending}</span>
+            <span className="tab-badge tab-badge-pending">{statusCounts.Pending}</span>
           </button>
           <button
             className={`segmented-tab-btn ${statusFilter === "Overdue" ? "active" : ""}`}
             onClick={() => setStatusFilter("Overdue")}
           >
             <span>Overdue</span>
-            <span className="tab-badge" style={{ color: "var(--status-overdue-text)" }}>{statusCounts.Overdue}</span>
+            <span className="tab-badge tab-badge-overdue">{statusCounts.Overdue}</span>
           </button>
         </div>
 
@@ -164,51 +187,27 @@ export function InvoiceTable({
             )}
           </div>
 
-          {/* Currency Filter */}
-          <select
-            className="select-control"
+          {/* Custom Currency Filter Dropdown */}
+          <CustomSelect
             value={currencyFilter}
-            onChange={(e) => setCurrencyFilter(e.target.value)}
-          >
-            <option value="all">All Currencies</option>
-            {CURRENCIES.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.code}
-              </option>
-            ))}
-          </select>
+            onChange={setCurrencyFilter}
+            options={currencyOptions}
+            size="sm"
+          />
 
-          {/* Month Filter */}
-          <select
-            className="select-control"
+          {/* Custom Month Filter Dropdown */}
+          <CustomSelect
             value={monthFilter}
-            onChange={(e) => setMonthFilter(e.target.value)}
-          >
-            <option value="all">All Months</option>
-            {MONTH_NAMES.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
+            onChange={setMonthFilter}
+            options={monthOptions}
+            size="sm"
+          />
         </div>
       </div>
 
       {/* Bulk Action Bar (when rows selected) */}
       {selectedIds.size > 0 && (
-        <div
-          style={{
-            background: "var(--bg-surface-elevated)",
-            border: "1px solid var(--border-strong)",
-            padding: "0.4rem 0.85rem",
-            borderRadius: "var(--radius-sm)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            fontSize: "var(--text-xs)",
-            animation: "fadeIn 120ms ease-out"
-          }}
-        >
+        <div className="bulk-action-bar">
           <span style={{ fontWeight: 600, color: "var(--ink-primary)" }}>
             {selectedIds.size} invoices selected
           </span>
@@ -224,19 +223,25 @@ export function InvoiceTable({
         </div>
       )}
 
-      {/* 2. Compact Data Table */}
+      {/* 2. Compact High-Precision Data Table */}
       <div className="table-container">
         <div className="table-scroll">
           <table className="data-table-refined">
             <thead>
               <tr>
-                <th style={{ width: "36px", textAlign: "center" }}>
-                  <input
-                    type="checkbox"
-                    checked={filteredInvoices.length > 0 && selectedIds.size === filteredInvoices.length}
-                    onChange={toggleSelectAll}
-                    style={{ cursor: "pointer", accentColor: "var(--brand-primary)" }}
-                  />
+                <th style={{ width: "38px", textAlign: "center" }}>
+                  <label className="custom-checkbox-label" title="Select all filtered invoices">
+                    <input
+                      type="checkbox"
+                      checked={filteredInvoices.length > 0 && selectedIds.size === filteredInvoices.length}
+                      onChange={toggleSelectAll}
+                    />
+                    <span className="custom-checkbox-box">
+                      {filteredInvoices.length > 0 && selectedIds.size === filteredInvoices.length && (
+                        <Check size={11} strokeWidth={3} />
+                      )}
+                    </span>
+                  </label>
                 </th>
                 <th className="sortable" onClick={() => handleSort("invoiceNo")}>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
@@ -306,33 +311,52 @@ export function InvoiceTable({
                       : "status-draft";
 
                   const isSelected = selectedIds.has(inv.id);
+                  const clientColor = getClientColor(inv.clientName);
 
                   return (
                     <tr
                       key={inv.id}
-                      style={{ background: isSelected ? "var(--bg-surface-active)" : undefined }}
+                      className={`invoice-row ${isSelected ? "row-selected" : ""}`}
+                      onClick={() => onOpenPreviewInvoice(inv)}
+                      title={`Click to view Invoice #${inv.invoiceNo} & PDF`}
                     >
                       {/* Checkbox */}
-                      <td style={{ textAlign: "center" }}>
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => toggleSelectRow(inv.id)}
-                          style={{ cursor: "pointer", accentColor: "var(--brand-primary)" }}
-                        />
+                      <td
+                        style={{ textAlign: "center" }}
+                        onClick={(e) => toggleSelectRow(inv.id, e)}
+                      >
+                        <label className="custom-checkbox-label">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => toggleSelectRow(inv.id, e)}
+                          />
+                          <span className="custom-checkbox-box">
+                            {isSelected && <Check size={11} strokeWidth={3} />}
+                          </span>
+                        </label>
                       </td>
 
                       {/* Invoice # */}
                       <td>
-                        <span className="mono-num" style={{ fontWeight: 700, color: "var(--ink-primary)", fontSize: "var(--text-xs)" }}>
-                          {inv.invoiceNo}
-                        </span>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                          <span className="mono-num invoice-no-tag">
+                            {inv.invoiceNo}
+                          </span>
+                        </div>
                       </td>
 
                       {/* Client */}
                       <td>
                         <div style={{ display: "flex", alignItems: "center" }}>
-                          <span className="client-initial-badge">
+                          <span
+                            className="client-initial-badge"
+                            style={{
+                              backgroundColor: clientColor.bg,
+                              color: clientColor.text,
+                              borderColor: clientColor.border
+                            }}
+                          >
                             {(inv.clientName || "C").slice(0, 1).toUpperCase()}
                           </span>
                           <span style={{ fontWeight: 600, color: "var(--ink-primary)" }}>
@@ -341,12 +365,17 @@ export function InvoiceTable({
                         </div>
                       </td>
 
-                      {/* Amount (Gross + Net if tax deducted) */}
+                      {/* Amount (Gross + Net if tax deducted) with currency pill */}
                       <td style={{ textAlign: "right" }}>
-                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
-                          <span className="mono-num" style={{ fontWeight: 700, color: "var(--ink-primary)", fontSize: "var(--text-sm)" }}>
-                            {formatCurrency(inv.amount, inv.currency)}
-                          </span>
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "1px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                            <span className={`currency-tag currency-tag-${(inv.currency || "USD").toLowerCase()}`}>
+                              {inv.currency}
+                            </span>
+                            <span className="mono-num" style={{ fontWeight: 700, color: "var(--ink-primary)", fontSize: "var(--text-sm)" }}>
+                              {formatCurrency(inv.amount, inv.currency)}
+                            </span>
+                          </div>
                           {inv.taxAmount > 0 && (
                             <span style={{ fontSize: "0.68rem", color: "var(--ink-muted)" }} className="mono-num">
                               Net: {formatCurrency(inv.netReceived, inv.currency)} (-{inv.taxRate}%)
@@ -362,19 +391,23 @@ export function InvoiceTable({
                         </span>
                       </td>
 
-                      {/* Status */}
-                      <td>
-                        <span className={`status-pill ${statusClass}`}>
-                          <span className="status-dot"></span>
-                          {aging.isOverdue && inv.status !== "Received" ? "Overdue" : inv.status}
-                        </span>
+                      {/* Status (Interactive Inline Dropdown) */}
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <InlineStatusDropdown
+                          invoice={inv}
+                          onUpdateStatus={updateInvoice}
+                          onOpenMarkPaid={onOpenMarkPaid}
+                          onShowToast={onShowToast}
+                        />
                       </td>
 
-                      {/* Payment Mode */}
-                      <td>
-                        <span style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>
-                          {inv.paymentMode || "Online"}
-                        </span>
+                      {/* Payment Mode (Interactive Inline Dropdown) */}
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <InlinePaymentModeDropdown
+                          invoice={inv}
+                          onUpdateMode={updateInvoice}
+                          onShowToast={onShowToast}
+                        />
                       </td>
 
                       {/* Received On */}
@@ -419,9 +452,9 @@ export function InvoiceTable({
                         </span>
                       </td>
 
-                      {/* Actions */}
-                      <td>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "2px" }}>
+                      {/* Actions (Clicking actions does NOT trigger row invoice preview) */}
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "3px" }}>
                           {/* Quick Mark Paid */}
                           {inv.status !== "Received" && (
                             <button
@@ -434,15 +467,6 @@ export function InvoiceTable({
                               <span>Paid</span>
                             </button>
                           )}
-
-                          {/* Preview / PDF */}
-                          <button
-                            className="btn btn-ghost btn-sm btn-icon"
-                            onClick={() => onOpenPreviewInvoice(inv)}
-                            title="Preview Invoice & PDF"
-                          >
-                            <Eye size={13} />
-                          </button>
 
                           {/* Edit */}
                           <button

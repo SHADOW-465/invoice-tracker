@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { X, Users, Plus, Building2, Trash2 } from "lucide-react";
 import { CURRENCIES, PAYMENT_TERMS } from "../types/finance";
-import { convertToBaseCurrency, formatCurrency } from "../utils/calculations";
+import { convertToBaseCurrency, formatCurrency, getClientColor } from "../utils/calculations";
 
 export function ClientsModal({
   isOpen,
@@ -219,21 +219,23 @@ export function ClientsModal({
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
                       <div
                         style={{
-                          width: 32,
-                          height: 32,
+                          width: 34,
+                          height: 34,
                           borderRadius: "var(--radius-sm)",
-                          background: "var(--brand-surface)",
-                          color: "var(--brand-primary)",
+                          background: getClientColor(client.name).bg,
+                          color: getClientColor(client.name).text,
+                          border: `1px solid ${getClientColor(client.name).border}`,
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
-                          fontWeight: 700
+                          fontWeight: 800,
+                          fontSize: "var(--text-sm)"
                         }}
                       >
-                        <Building2 size={16} />
+                        {(client.name || "C").slice(0, 1).toUpperCase()}
                       </div>
                       <div>
                         <div style={{ fontWeight: 700, fontSize: "var(--text-base)", color: "var(--ink-primary)" }}>

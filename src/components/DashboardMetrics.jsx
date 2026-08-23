@@ -4,16 +4,14 @@ import {
   CheckCircle2,
   Clock,
   AlertCircle,
-  Percent,
-  CalendarCheck,
+  TrendingUp,
+  ShieldCheck,
   BarChart3,
-  PieChart,
   ChevronDown,
   ChevronUp,
-  ArrowUpRight,
-  ShieldCheck,
-  TrendingUp,
-  Wallet
+  Receipt,
+  Percent,
+  Timer
 } from "lucide-react";
 import { calculateFinancialMetrics, formatCurrency } from "../utils/calculations";
 
@@ -35,259 +33,281 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics }) {
     return maxVal * 1.15;
   }, [metrics.monthlyData]);
 
-  // Overall health assessment
+  const totalGross = metrics.totalInvoicedBase || 1;
+  const realizedPct = ((metrics.totalReceivedBase / totalGross) * 100).toFixed(1);
+  const taxPct = ((metrics.totalTaxWithheldBase / totalGross) * 100).toFixed(1);
+  const pendingPct = ((metrics.totalPendingBase / totalGross) * 100).toFixed(1);
+  const overduePct = ((metrics.totalOverdueBase / totalGross) * 100).toFixed(1);
+
   const hasOverdue = metrics.totalOverdueBase > 0;
-  const collectionRatio = metrics.totalInvoicedBase > 0 
-    ? Math.min(100, Math.round((metrics.totalReceivedBase / metrics.totalInvoicedBase) * 100))
-    : 0;
+  const hasPending = metrics.totalPendingBase > 0;
+  const settledCount = store.invoices.filter((i) => i.status === "Received").length;
+  const overdueCount = store.invoices.filter((i) => {
+    if (i.status === "Received") return false;
+    const due = i.dueDate ? new Date(i.dueDate) : null;
+    return due && due < new Date();
+  }).length;
 
   return (
-    <div className="bento-wrapper">
-      {/* 1. Header Line with View Mode Toggle */}
-      <div className="bento-header-bar">
-        <div className="bento-header-title">
-          <Wallet size={15} color="var(--brand-primary)" />
-          <span>Executive Overview & Receivables</span>
-          <span className="bento-currency-tag">Base: {store.baseCurrency}</span>
+    <div className="metrics-dashboard-wrapper">
+      {/* 1. Header with Base Currency & Analytics Toggle */}
+      <div className="metrics-header-row">
+        <div className="metrics-header-title">
+          <Receipt size={16} className="metrics-header-icon" />
+          <span>Executive Financial Summary</span>
+          <span className="metrics-currency-indicator">
+            Base Currency: <strong>{store.baseCurrency}</strong>
+          </span>
         </div>
         <button
           className="btn btn-ghost btn-sm"
           onClick={onToggleAnalytics}
           aria-expanded={showAnalytics}
-          title={showAnalytics ? "Collapse deep analytics" : "Expand deep analytics"}
+          title={showAnalytics ? "Collapse charts" : "Expand velocity charts"}
         >
           <BarChart3 size={13} />
-          <span>{showAnalytics ? "Compact Bento" : "Expanded Bento"}</span>
+          <span>{showAnalytics ? "Hide Analytics" : "Show Analytics"}</span>
           {showAnalytics ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
         </button>
       </div>
 
-      {/* 2. Main Bento Grid */}
-      <div className="bento-grid">
-        {/* BENTO CARD 1: Hero Realized Cash Flow & Collection Rate (Span 7) */}
-        <div className="bento-card bento-card-hero">
-          <div className="bento-card-header">
-            <div className="bento-card-label-group">
-              <span className="bento-card-label">Realized Cash Flow</span>
-              <span className="bento-badge bento-badge-success">
-                <CheckCircle2 size={11} />
-                <span>{metrics.collectionRate}% Realized</span>
+      {/* 2. 4-Column Executive KPI Cards */}
+      <div className="kpi-grid">
+        {/* KPI 1: Gross Invoiced */}
+        <div className="kpi-card">
+          <div className="kpi-card-header">
+            <span className="kpi-card-label">Total Invoiced</span>
+            <div className="kpi-icon-pill kpi-icon-neutral">
+              <FileText size={14} />
+            </div>
+          </div>
+          <div className="kpi-value mono-num">
+            {formatCurrency(metrics.totalInvoicedBase, store.baseCurrency)}
+          </div>
+          <div className="kpi-subtext">
+            <span>{store.invoices.length} total invoices raised</span>
+          </div>
+        </div>
+
+        {/* KPI 2: Realized / Collected Cash */}
+        <div className="kpi-card kpi-card-highlight">
+          <div className="kpi-card-header">
+            <span className="kpi-card-label">Collected Cash</span>
+            <span className="kpi-badge kpi-badge-success">
+              <CheckCircle2 size={11} />
+              <span>{metrics.collectionRate}% Realized</span>
+            </span>
+          </div>
+          <div className="kpi-value kpi-value-success mono-num">
+            {formatCurrency(metrics.totalReceivedBase, store.baseCurrency)}
+          </div>
+          <div className="kpi-subtext">
+            <span>{settledCount} of {store.invoices.length} invoices settled</span>
+          </div>
+        </div>
+
+        {/* KPI 3: Outstanding Receivables & Aging Risk */}
+        <div className="kpi-card">
+          <div className="kpi-card-header">
+            <span className="kpi-card-label">Outstanding Receivables</span>
+            {hasOverdue ? (
+              <span className="kpi-badge kpi-badge-danger">
+                <AlertCircle size={11} />
+                <span>{overdueCount} Overdue</span>
+              </span>
+            ) : hasPending ? (
+              <span className="kpi-badge kpi-badge-pending">
+                <Clock size={11} />
+                <span>Within Terms</span>
+              </span>
+            ) : (
+              <span className="kpi-badge kpi-badge-neutral">
+                <ShieldCheck size={11} />
+                <span>Zero Risk</span>
+              </span>
+            )}
+          </div>
+          <div className={`kpi-value mono-num ${hasOverdue ? "kpi-value-danger" : hasPending ? "kpi-value-pending" : ""}`}>
+            {formatCurrency(metrics.totalPendingBase + metrics.totalOverdueBase, store.baseCurrency)}
+          </div>
+          <div className="kpi-subtext">
+            {hasOverdue ? (
+              <span style={{ color: "var(--status-overdue-text)", fontWeight: 600 }}>
+                {formatCurrency(metrics.totalOverdueBase, store.baseCurrency)} past due date
+              </span>
+            ) : (
+              <span>All invoices currently up to date</span>
+            )}
+          </div>
+        </div>
+
+        {/* KPI 4: Tax Withheld & DSO Speed */}
+        <div className="kpi-card">
+          <div className="kpi-card-header">
+            <span className="kpi-card-label">Tax / TDS Withheld</span>
+            <div className="kpi-icon-pill kpi-icon-neutral">
+              <Timer size={14} />
+            </div>
+          </div>
+          <div className="kpi-value mono-num">
+            {formatCurrency(metrics.totalTaxWithheldBase, store.baseCurrency)}
+          </div>
+          <div className="kpi-subtext">
+            <span>Avg DSO Speed: <strong>{metrics.avgDaysToCollect} days</strong></span>
+          </div>
+        </div>
+      </div>
+
+      {/* 3. Unified Realization Flow Ribbon */}
+      <div className="realization-bar-container">
+        <div className="realization-bar-header">
+          <div className="realization-legend-group">
+            <div className="realization-legend-item">
+              <span className="realization-dot realization-dot-success" />
+              <span>Realized ({realizedPct}%)</span>
+            </div>
+            {parseFloat(taxPct) > 0 && (
+              <div className="realization-legend-item">
+                <span className="realization-dot realization-dot-tax" />
+                <span>Tax Withheld ({taxPct}%)</span>
+              </div>
+            )}
+            {parseFloat(pendingPct) > 0 && (
+              <div className="realization-legend-item">
+                <span className="realization-dot realization-dot-pending" />
+                <span>Pending ({pendingPct}%)</span>
+              </div>
+            )}
+            {parseFloat(overduePct) > 0 && (
+              <div className="realization-legend-item">
+                <span className="realization-dot realization-dot-danger" />
+                <span>Overdue ({overduePct}%)</span>
+              </div>
+            )}
+          </div>
+          <span className="realization-summary-note mono-num">
+            Gross Base: {formatCurrency(metrics.totalInvoicedBase, store.baseCurrency)}
+          </span>
+        </div>
+
+        <div className="realization-track">
+          <div
+            className="realization-segment realization-segment-success"
+            style={{ width: `${realizedPct}%` }}
+            title={`Realized Cash: ${formatCurrency(metrics.totalReceivedBase, store.baseCurrency)} (${realizedPct}%)`}
+          />
+          {parseFloat(taxPct) > 0 && (
+            <div
+              className="realization-segment realization-segment-tax"
+              style={{ width: `${taxPct}%` }}
+              title={`Tax Withheld: ${formatCurrency(metrics.totalTaxWithheldBase, store.baseCurrency)} (${taxPct}%)`}
+            />
+          )}
+          {parseFloat(pendingPct) > 0 && (
+            <div
+              className="realization-segment realization-segment-pending"
+              style={{ width: `${pendingPct}%` }}
+              title={`Pending: ${formatCurrency(metrics.totalPendingBase, store.baseCurrency)} (${pendingPct}%)`}
+            />
+          )}
+          {parseFloat(overduePct) > 0 && (
+            <div
+              className="realization-segment realization-segment-danger"
+              style={{ width: `${overduePct}%` }}
+              title={`Overdue: ${formatCurrency(metrics.totalOverdueBase, store.baseCurrency)} (${overduePct}%)`}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* 4. Expandable Analytics Section */}
+      {showAnalytics && (
+        <div className="analytics-expandable-grid">
+          {/* Chart Card */}
+          <div className="analytics-card">
+            <div className="analytics-card-header">
+              <span className="analytics-card-title">Monthly Velocity: Invoiced vs Collected</span>
+              <div className="analytics-legend">
+                <span className="analytics-legend-item">
+                  <span className="analytics-dot" style={{ background: "var(--chart-bar-invoiced)" }} />
+                  Invoiced
+                </span>
+                <span className="analytics-legend-item">
+                  <span className="analytics-dot" style={{ background: "var(--chart-bar-collected)" }} />
+                  Collected
+                </span>
+              </div>
+            </div>
+
+            {metrics.monthlyData.length === 0 ? (
+              <div className="analytics-empty">No invoice activity recorded</div>
+            ) : (
+              <div className="analytics-chart-container">
+                {metrics.monthlyData.map((item, idx) => {
+                  const invoicedHeight = Math.max(6, (item.invoiced / maxMonthlyVal) * 110);
+                  const receivedHeight = Math.max(6, (item.received / maxMonthlyVal) * 110);
+
+                  return (
+                    <div key={idx} className="analytics-chart-col">
+                      <div className="analytics-bars-pair">
+                        <div
+                          className="analytics-bar"
+                          style={{
+                            height: `${invoicedHeight}px`,
+                            backgroundColor: "var(--chart-bar-invoiced)"
+                          }}
+                          title={`Invoiced: ${formatCurrency(item.invoiced, store.baseCurrency)}`}
+                        />
+                        <div
+                          className="analytics-bar"
+                          style={{
+                            height: `${receivedHeight}px`,
+                            backgroundColor: "var(--chart-bar-collected)"
+                          }}
+                          title={`Collected: ${formatCurrency(item.received, store.baseCurrency)}`}
+                        />
+                      </div>
+                      <span className="analytics-chart-label">{item.month.slice(0, 3)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Currency Allocation Card */}
+          <div className="analytics-card">
+            <div className="analytics-card-header">
+              <span className="analytics-card-title">Portfolio Currency Allocation</span>
+              <span style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>
+                {currencyEntries.length} Active Currencies
               </span>
             </div>
-            <div className="bento-icon-badge bento-icon-success">
-              <TrendingUp size={16} />
-            </div>
-          </div>
 
-          <div className="bento-hero-body">
-            <div className="bento-primary-value mono-num">
-              {formatCurrency(metrics.totalReceivedBase, store.baseCurrency)}
-            </div>
-            <div className="bento-hero-subtext">
-              <span>Total gross invoiced: </span>
-              <strong className="mono-num" style={{ color: "var(--ink-primary)" }}>
-                {formatCurrency(metrics.totalInvoicedBase, store.baseCurrency)}
-              </strong>
-              <span> across {store.invoices.length} invoices</span>
-            </div>
-
-            {/* Collection Progress Bar */}
-            <div className="bento-progress-track" title={`Realized: ${metrics.collectionRate}%`}>
-              <div
-                className="bento-progress-fill bento-fill-success"
-                style={{ width: `${collectionRatio}%` }}
-              />
-              {metrics.totalPendingBase > 0 && (
-                <div
-                  className="bento-progress-fill bento-fill-pending"
-                  style={{
-                    width: `${Math.min(
-                      100 - collectionRatio,
-                      Math.round((metrics.totalPendingBase / (metrics.totalInvoicedBase || 1)) * 100)
-                    )}%`
-                  }}
-                />
-              )}
-            </div>
-
-            {/* Micro Sub-Stats Grid */}
-            <div className="bento-subgrid">
-              <div className="bento-substat">
-                <span className="bento-substat-label">Tax Withheld / TDS</span>
-                <span className="bento-substat-value mono-num">
-                  {formatCurrency(metrics.totalTaxWithheldBase, store.baseCurrency)}
-                </span>
-              </div>
-              <div className="bento-substat">
-                <span className="bento-substat-label">Settled Invoices</span>
-                <span className="bento-substat-value mono-num">
-                  {store.invoices.filter((i) => i.status === "Received").length} / {store.invoices.length}
-                </span>
-              </div>
-              <div className="bento-substat">
-                <span className="bento-substat-label">Avg DSO Speed</span>
-                <span className="bento-substat-value mono-num">
-                  {metrics.avgDaysToCollect} <small style={{ fontWeight: 500 }}>days</small>
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* BENTO CARD 2: Receivables & Aging Risk Exposure (Span 5) */}
-        <div className="bento-card bento-card-risk">
-          <div className="bento-card-header">
-            <div className="bento-card-label-group">
-              <span className="bento-card-label">Receivables & Aging</span>
-              {hasOverdue ? (
-                <span className="bento-badge bento-badge-danger">
-                  <AlertCircle size={11} />
-                  <span>Action Required</span>
-                </span>
-              ) : (
-                <span className="bento-badge bento-badge-neutral">
-                  <ShieldCheck size={11} />
-                  <span>Healthy Ledger</span>
-                </span>
-              )}
-            </div>
-            <div className={`bento-icon-badge ${hasOverdue ? "bento-icon-danger" : "bento-icon-neutral"}`}>
-              <Clock size={16} />
-            </div>
-          </div>
-
-          <div className="bento-risk-body">
-            {/* Active Pending */}
-            <div className="bento-stat-row">
-              <div>
-                <div className="bento-stat-subtitle">Active Pending</div>
-                <div className="bento-stat-amount mono-num" style={{ color: "var(--status-pending-text)" }}>
-                  {formatCurrency(metrics.totalPendingBase, store.baseCurrency)}
-                </div>
-              </div>
-              <span className="bento-status-chip bento-chip-pending">Within Terms</span>
-            </div>
-
-            {/* Overdue Past Terms */}
-            <div className="bento-stat-row">
-              <div>
-                <div className="bento-stat-subtitle">Overdue Receivables</div>
-                <div className="bento-stat-amount mono-num" style={{ color: hasOverdue ? "var(--status-overdue-text)" : "var(--ink-muted)" }}>
-                  {formatCurrency(metrics.totalOverdueBase, store.baseCurrency)}
-                </div>
-              </div>
-              {hasOverdue ? (
-                <span className="bento-status-chip bento-chip-danger">Past Due</span>
-              ) : (
-                <span className="bento-status-chip bento-chip-neutral">$0.00 Overdue</span>
-              )}
-            </div>
-
-            {/* Aging Buckets Micro Strip */}
-            <div className="bento-aging-strip">
-              <div className="bento-aging-item">
-                <span className="bento-aging-label">0–30d</span>
-                <span className="bento-aging-val mono-num">
-                  {formatCurrency(metrics.agingBuckets.days1_30, store.baseCurrency)}
-                </span>
-              </div>
-              <div className="bento-aging-item">
-                <span className="bento-aging-label">31–60d</span>
-                <span className="bento-aging-val mono-num">
-                  {formatCurrency(metrics.agingBuckets.days31_60, store.baseCurrency)}
-                </span>
-              </div>
-              <div className="bento-aging-item">
-                <span className="bento-aging-label">61–90d+</span>
-                <span className="bento-aging-val mono-num">
-                  {formatCurrency(metrics.agingBuckets.days61_90 + metrics.agingBuckets.days90Plus, store.baseCurrency)}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* EXPANDED BENTO ROW: Cash Flow Momentum & Multi-Currency Allocation */}
-        {showAnalytics && (
-          <>
-            {/* BENTO CARD 3: Cash Flow Momentum Trend (Span 7) */}
-            <div className="bento-card bento-card-chart">
-              <div className="bento-card-header">
-                <div className="bento-card-label-group">
-                  <span className="bento-card-label">Monthly Velocity: Invoiced vs Collected</span>
-                </div>
-                <div className="bento-legend-group">
-                  <span className="bento-legend-item">
-                    <span className="bento-legend-dot bento-dot-invoiced" />
-                    Invoiced
-                  </span>
-                  <span className="bento-legend-item">
-                    <span className="bento-legend-dot bento-dot-collected" />
-                    Collected
-                  </span>
-                </div>
-              </div>
-
-              {metrics.monthlyData.length === 0 ? (
-                <div className="bento-empty-chart">No invoice activity recorded</div>
-              ) : (
-                <div className="bento-chart-container">
-                  {metrics.monthlyData.map((item, idx) => {
-                    const invoicedHeight = Math.max(6, (item.invoiced / maxMonthlyVal) * 110);
-                    const receivedHeight = Math.max(6, (item.received / maxMonthlyVal) * 110);
-
-                    return (
-                      <div key={idx} className="bento-chart-col">
-                        <div className="bento-bars-pair">
-                          <div
-                            className="bento-bar bento-bar-invoiced"
-                            style={{ height: `${invoicedHeight}px` }}
-                            title={`Invoiced: ${formatCurrency(item.invoiced, store.baseCurrency)}`}
-                          />
-                          <div
-                            className="bento-bar bento-bar-collected"
-                            style={{ height: `${receivedHeight}px` }}
-                            title={`Collected: ${formatCurrency(item.received, store.baseCurrency)}`}
-                          />
-                        </div>
-                        <span className="bento-chart-label">{item.month.slice(0, 3)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* BENTO CARD 4: Multi-Currency Allocation (Span 5) */}
-            <div className="bento-card bento-card-currency">
-              <div className="bento-card-header">
-                <div className="bento-card-label-group">
-                  <span className="bento-card-label">Portfolio Currencies</span>
-                </div>
-                <span className="bento-pill-count">{currencyEntries.length} Active UOMs</span>
-              </div>
-
-              <div className="bento-currency-list">
-                {currencyEntries.map(([code, stats]) => (
-                  <div key={code} className="bento-currency-row">
-                    <div className="bento-currency-info">
-                      <strong className="bento-currency-code">{code}</strong>
-                      <span className="bento-currency-count">{stats.count} inv</span>
-                    </div>
-                    <div className="bento-currency-val mono-num">
-                      {formatCurrency(stats.total, code)}
-                    </div>
+            <div className="analytics-currency-list">
+              {currencyEntries.map(([code, stats]) => (
+                <div key={code} className="analytics-currency-row">
+                  <div className="analytics-currency-info">
+                    <span className={`currency-tag currency-tag-${code.toLowerCase()}`}>
+                      {code}
+                    </span>
+                    <span style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>
+                      {stats.count} {stats.count === 1 ? "invoice" : "invoices"}
+                    </span>
                   </div>
-                ))}
+                  <div className="mono-num" style={{ fontWeight: 700, color: "var(--ink-primary)", fontSize: "var(--text-sm)" }}>
+                    {formatCurrency(stats.total, code)}
+                  </div>
+                </div>
+              ))}
 
-                {currencyEntries.length === 0 && (
-                  <div className="bento-empty-chart">No currencies active</div>
-                )}
-              </div>
+              {currencyEntries.length === 0 && (
+                <div className="analytics-empty">No currencies active</div>
+              )}
             </div>
-          </>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

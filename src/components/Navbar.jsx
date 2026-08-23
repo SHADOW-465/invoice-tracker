@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { CURRENCIES } from "../types/finance";
 import { exportToExcel, parseExcelFile } from "../utils/excelHandler";
+import { CustomSelect } from "./CustomSelect";
 
 export function Navbar({
   store,
@@ -70,21 +71,21 @@ export function Navbar({
         <div className="nav-actions">
           {/* Base Currency Selector */}
           <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }} title="Convert dashboard totals to Base Currency">
-            <label htmlFor="base-curr" style={{ fontSize: "0.7rem", color: "var(--ink-muted)", fontWeight: 600 }}>
+            <span style={{ fontSize: "0.7rem", color: "var(--ink-muted)", fontWeight: 600 }}>
               Base:
-            </label>
-            <select
-              id="base-curr"
-              className="select-control"
+            </span>
+            <CustomSelect
               value={store.baseCurrency}
-              onChange={(e) => store.setBaseCurrency(e.target.value)}
-            >
-              {CURRENCIES.map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.code} ({c.symbol})
-                </option>
-              ))}
-            </select>
+              onChange={(val) => store.setBaseCurrency(val)}
+              options={CURRENCIES.map((c) => ({
+                value: c.code,
+                label: `${c.code} (${c.symbol})`,
+                badge: c.code,
+                sublabel: c.name
+              }))}
+              size="sm"
+              align="left"
+            />
           </div>
 
           {/* Import Excel */}
