@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { X, Sparkles, AlertCircle } from "lucide-react";
 import { CURRENCIES, PAYMENT_MODES, PAYMENT_TERMS, STATUS_TYPES } from "../types/finance";
 import { getMonthName, calculateDueDate } from "../utils/calculations";
+import { CustomDatePicker } from "./CustomDatePicker";
 
 export function InvoiceModal({
   isOpen,
@@ -71,16 +72,18 @@ export function InvoiceModal({
 
   if (!isOpen) return null;
 
-  const handleRaisedOnChange = (e) => {
+  const handleRaisedOnChange = (valOrEvent) => {
     setErrorMessage("");
-    const val = e.target.value;
-    const m = getMonthName(val);
+    const val = typeof valOrEvent === "string" ? valOrEvent : valOrEvent?.target?.value || "";
+    const m = val ? getMonthName(val) : "";
     let due = formData.dueDate;
-    if (formData.paymentTerms === "Net 30") due = calculateDueDate(val, 30);
-    else if (formData.paymentTerms === "Net 15") due = calculateDueDate(val, 15);
-    else if (formData.paymentTerms === "Net 45") due = calculateDueDate(val, 45);
-    else if (formData.paymentTerms === "Net 60") due = calculateDueDate(val, 60);
-    else if (formData.paymentTerms === "Due Immediately (Net 0)") due = calculateDueDate(val, 0);
+    if (val) {
+      if (formData.paymentTerms === "Net 30") due = calculateDueDate(val, 30);
+      else if (formData.paymentTerms === "Net 15") due = calculateDueDate(val, 15);
+      else if (formData.paymentTerms === "Net 45") due = calculateDueDate(val, 45);
+      else if (formData.paymentTerms === "Net 60") due = calculateDueDate(val, 60);
+      else if (formData.paymentTerms === "Due Immediately (Net 0)") due = calculateDueDate(val, 0);
+    }
 
     setFormData(prev => ({
       ...prev,
@@ -235,11 +238,10 @@ export function InvoiceModal({
               {/* Raised on Date */}
               <div className="form-group">
                 <label className="form-label">Raised on (Invoice Date) *</label>
-                <input
-                  type="date"
-                  className="form-input mono-num"
+                <CustomDatePicker
                   value={formData.raisedOn}
                   onChange={handleRaisedOnChange}
+                  placeholder="Select invoice date"
                   required
                 />
               </div>
@@ -274,11 +276,11 @@ export function InvoiceModal({
               {/* Due Date */}
               <div className="form-group">
                 <label className="form-label">Due Date</label>
-                <input
-                  type="date"
-                  className="form-input mono-num"
+                <CustomDatePicker
                   value={formData.dueDate}
-                  onChange={(e) => setFormData(p => ({ ...p, dueDate: e.target.value }))}
+                  onChange={(val) => setFormData(p => ({ ...p, dueDate: val }))}
+                  placeholder="Select due date"
+                  allowClear
                 />
               </div>
 

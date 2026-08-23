@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { X, CheckCircle2, DollarSign } from "lucide-react";
 import confetti from "canvas-confetti";
 import { formatCurrency } from "../utils/calculations";
+import { CustomDatePicker } from "./CustomDatePicker";
 
 export function MarkPaidModal({
   isOpen,
@@ -89,11 +90,10 @@ export function MarkPaidModal({
               {/* Received Date */}
               <div className="form-group">
                 <label className="form-label">Date Payment Received *</label>
-                <input
-                  type="date"
-                  className="form-input mono-num"
+                <CustomDatePicker
                   value={receivedOn}
-                  onChange={(e) => setReceivedOn(e.target.value)}
+                  onChange={(val) => setReceivedOn(val)}
+                  placeholder="Select payment date"
                   required
                 />
               </div>
