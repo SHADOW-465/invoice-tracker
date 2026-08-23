@@ -2,10 +2,22 @@ node_modules
 dist
 dist-ssr
 *.local
+
+# Environment variables
 .env
 .env.*
 !.env.example
+
+# IDE & OS files
 .DS_Store
 *.log
 .vscode/
 .idea/
+
+# Custom Agent & Design Documentation (Local/Private)
+AGENTS.md
+DESIGN.md
+PRODUCT.md
+docs/
+graphify-out/
+gr/
