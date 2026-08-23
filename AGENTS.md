@@ -1,143 +1,124 @@
-# AGENTS.md — Codebase Instructions & Agent Guidelines
+# AGENTS.md — working in this repo
 
-This document serves as the primary technical directive for all AI coding assistants, automated agents, and pair programmers working in this repository.
+## What this is
 
----
+A local-only receivables ledger. React UI and **one Excel workbook as the database**,
+shipped two ways: a Tauri desktop app (no sockets) and a browser build behind a small
+Node server on `127.0.0.1`. There is no cloud service, no auth, no multi-user story —
+do not add one.
 
-## 1. Project Overview & Tech Stack
+Read `README.md` first; it is the user-facing truth about how this runs and where the
+data lives. Then, depending on what you are changing:
 
-**Invoice Tracker** is a client-side financial receivables ledger and cash flow tracking application designed to replace spreadsheet friction (`Invoice Tracker.xlsx`) with automated calculations, Bento Grid executive dashboards, and bidirectional Excel interoperability.
+| Changing | Read first |
+|---|---|
+| Column mapping, dates, validation | [docs/data-model.md](docs/data-model.md) |
+| Any calculation | [docs/financial-logic.md](docs/financial-logic.md) |
+| Where a feature belongs, screen behaviour | [docs/ui-spec.md](docs/ui-spec.md) |
+| Structure, or anything hard to reverse | [docs/architecture.md](docs/architecture.md) — the ADRs record *why* |
+| Adding a requirement | [docs/SRS.md](docs/SRS.md) — number it, make it testable |
+| Scope arguments | [docs/PRD.md](docs/PRD.md) §6 lists what is deliberately not built |
 
-### Technology Stack:
-- **Runtime & UI**: React 18 (`react`, `react-dom`) + Vite 5
-- **Styling**: Handcrafted **Vanilla CSS** with **OKLCH design tokens** and **Bento Grid** layout.
-- **Icons**: Lucide Icons (`lucide-react`)
-- **Excel Ingestion & Export**: SheetJS (`xlsx`)
-- **Document Output**: jsPDF (`jspdf`)
-- **Storage**: Client-side `localStorage` with versioned keys.
+Keep the docs current in the same commit as the change. A wrong document is worse than
+no document.
 
----
+## Two shells, one set of rules
 
-## 2. Directory Layout
+`src/lib/workbook.js` is the whole spreadsheet contract: column mapping, coercion,
+validation and the mutations. It is pure — bytes in, bytes out, no filesystem. Two
+shells drive it:
+
+- **Desktop (Tauri)** — `src/lib/desktop.js`, reading and writing through the fs plugin.
+- **Browser** — `server/store.js` + `server/server.js`, through `node:fs`.
+
+`src/lib/api.js` picks the shell at runtime; screens never know which. Put ledger logic
+in `workbook.js`, or it will exist in one build and not the other.
+
+The Rust side in `src-tauri/` holds no business logic on purpose: window, dialog, fs.
+
+## Layout
 
 ```
-finance_tracker/
-├── docs/                        # Complete technical documentation suite
-│   ├── README.md                # Master documentation index
-│   ├── architecture.md          # System design & component topology
-│   ├── financial-engine.md      # Calculation formulas & math specs
-│   ├── data-schema.md           # TypeScript entity definitions & Excel mappings
-│   ├── components.md            # React component catalog & props API
-│   ├── design-system.md         # OKLCH tokens, Bento grid & accessibility
-│   └── user-guide.md            # Operational workflows & user manual
-├── src/
-│   ├── components/              # Isolated React UI components
-│   │   ├── Navbar.jsx           # Global header & quick actions
-│   │   ├── DashboardMetrics.jsx # 12-column Bento Grid executive dashboard
-│   │   ├── AnalyticsCharts.jsx  # Chart components & visualizers
-│   │   ├── InvoiceTable.jsx     # High-density data grid & segmented tabs
-│   │   ├── InvoiceModal.jsx     # Add/Edit invoice dialog
-│   │   ├── MarkPaidModal.jsx    # Settlement & tax withholding dialog
-│   │   ├── InvoicePreviewModal.jsx # Vector PDF & email reminder modal
-│   │   ├── ClientsModal.jsx     # Client directory & billing totals
-│   │   └── SettingsModal.jsx    # Business profile & banking details
-│   ├── hooks/
-│   │   └── useFinanceStore.js   # Centralized reactive state hook & storage
-│   ├── types/
-│   │   └── finance.js           # Enums, currency tables, seed records
-│   ├── utils/
-│   │   ├── calculations.js      # Pure financial math, aging, & currency engine
-│   │   └── excelHandler.js      # SheetJS .xlsx parser and exporter
-│   ├── App.jsx                  # Root orchestrator & modal coordinator
-│   ├── index.css                # CSS variables, Bento grid, dark/light themes
-│   └── main.jsx                 # Application entry point
-├── AGENTS.md                    # Coding agent instructions (this file)
-├── DESIGN.md                    # Design tokens & color system reference
-├── PRODUCT.md                   # Product specification & brand personality
-├── package.json                 # Project dependencies & npm scripts
-└── vite.config.js               # Vite build configuration
+FinanceOS.cmd            Browser-mode launcher (build if needed, serve, open window)
+Invoice Tracker.xlsx     The database. First sheet = invoices, plus Clients + Settings
+backups/                 Last 30 pre-write snapshots (gitignored)
+src-tauri/               Desktop shell: window, dialog, fs plugin, icons, capabilities
+server/
+  store.js               node:fs shell over src/lib/workbook.js
+  store.test.js          Round-trip + conversion self-check — `npm test`
+  server.js              node:http. Six REST routes + static dist/
+src/
+  lib/workbook.js        THE spreadsheet contract. Shared by both shells
+  lib/desktop.js         Tauri fs shell and workbook picker
+  lib/api.js             Runtime choice between the two shells
+  lib/format.js          Money, dates, compact currency notation
+  lib/derive.js          Every derived number: conversion, aging, totals, client stats
+  lib/exporters.js       CSV, invoice PDF, reminder email text
+  components/            Topbar, drawers, row menu, command palette, primitives
+  screens/               One file per screen, all fed by the same `ctx` object
+                         Workspace.jsx is home: KPIs + analytics + the ledger
+  styles.css             All styling. Design tokens at the top
 ```
 
----
+## Rules that matter
 
-## 3. Core Architectural Rules for Agents
+**The workbook is the source of truth.** Nothing is cached in `localStorage`, and no
+state lives only in React. Every mutation is a read-modify-write on the file, and the
+UI re-reads after each one. If you find yourself caching invoices client-side to avoid
+a round trip, stop — correctness over a few milliseconds.
 
-### Rule 1: Maintain UI Design Standards (Linear / Stripe Grade)
-- **Vanilla CSS Only**: Do NOT install TailwindCSS or heavy UI libraries unless the user explicitly requests it.
-- **Color System**: Use `oklch()` CSS custom properties defined in `src/index.css`.
-- **Absolute Bans (AI Slop)**:
-  - NO decorative rainbow gradient text (`background-clip: text`).
-  - NO generic glassmorphism or excessive background blurs.
-  - NO side-stripe borders (`border-left: 4px solid ...`) on cards or table rows.
-  - NO repetitive identical card grids — use the **Bento Grid** hierarchy.
-  - NO screaming oversized header text (`clamp()` max $\le 28\text{px}$ for headers).
-- **Monospace Numeral Stack**: Always apply `.mono-num` (`JetBrains Mono`, `font-variant-numeric: tabular-nums`) to all currency amounts, invoice numbers, dates, and calculation results.
+**One writer per shell, always snapshot-then-rename.** `writeAll` (Node) and
+`writeData` (desktop) both back the file up before writing and rename a temp file into
+place. Never open the workbook for writing anywhere else.
 
----
+**Statuses on disk are `Received` or `Outstanding` only.** `Overdue` is derived from
+the due date at read time (`decorate` in `derive.js`) so it can never go stale in the
+sheet. Legacy values collapse to `Outstanding` on read.
 
-### Rule 2: Keep Financial Math Pure & Deterministic
-- All date math, aging computations, currency conversions, and tax calculations MUST reside in `src/utils/calculations.js`.
-- Component files (`.jsx`) must NOT perform ad-hoc date arithmetic or un-rounded floating point math.
-- Always use `toFixed(2)` and `round()` helpers when storing or calculating currency figures to prevent floating-point anomalies (e.g. `0.1 + 0.2 = 0.30000000000000004`).
+**Dates are ISO `YYYY-MM-DD` in memory, whole Excel serials on disk.** `stampDates`
+handles the conversion by hand — SheetJS's own Date handling lands ten seconds past
+midnight and drifts a day across timezones. If you touch date handling, run `npm test`;
+it asserts both directions.
 
----
+**Workspace first, deep screens second.** The single page carries the daily loop —
+scan the numbers, find the invoice, act on it — and every row action (edit, duplicate,
+record payment, PDF, delete) happens in place without navigating. A separate screen has
+to earn itself by needing the room: collections, client profiles, payments,
+reports, invoice detail. When adding a feature, the default home is the row menu or a
+drawer on the Workspace, not a new tab.
 
-### Rule 3: State Management & LocalStorage Conventions
-- All global state is managed through `useFinanceStore` in `src/hooks/useFinanceStore.js`.
-- Always persist state changes through the versioned keys:
-  - `apex_finance_invoices_v1`
-  - `apex_finance_clients_v1`
-  - `apex_finance_settings_v1`
-  - `apex_finance_base_currency_v1`
-  - `apex_finance_theme_v1`
-- When adding new fields to entities, ensure backward-compatible default fallback values are provided during JSON hydration.
+**Currency has two meanings — keep them apart.** The display currency (`ctx.base`)
+re-expresses every total through `convert()`; it never filters. Filtering by invoice
+currency is a screen-local concern and belongs on the Invoices screen. Conflating the
+two was a real bug once; do not reintroduce it.
 
----
+**Validate before anything reaches the workbook.** A bad row written to the workbook is a bad row
+forever. `validateInvoice` in `workbook.js` is the gate, and both shells go through it.
 
-### Rule 4: Preserve Excel Interoperability
-- `exportToExcel()` in `src/utils/excelHandler.js` must output columns that match `Invoice Tracker.xlsx` exactly:
-  1. `Invoice #`
-  2. `Client Name`
-  3. `Actual Invoiced Amt`
-  4. `Mode of Payment`
-  5. `UOM`
-  6. `Raised on`
-  7. `Invoiced Month`
-  8. `Collection Status`
-  9. `Received on`
-  10. `Due by (days)`
-  11. `Remarks`
-- The parser `parseExcelFile()` must preserve fuzzy synonym matching for column headers and tax deduction notes (e.g. *"15% tax"*).
+**Excel holds an exclusive lock on an open workbook.** Both shells turn the resulting
+`EBUSY`/`EPERM`/access-denied into one plain-English message naming the file. Keep it
+that way; do not retry in a loop.
 
----
+**No network requests, ever.** Fonts are self-hosted in `public/fonts/` and the desktop
+CSP blocks outside origins outright. Do not add a CDN link, an analytics call, or a
+live FX-rate fetch — rates are entered by hand in Settings on purpose, so a figure in
+the ledger never changes because a third party moved.
 
-## 4. Development & Build Verification Workflow
+## Design
 
-When making modifications to this codebase, follow this verification checklist:
+Light only, deliberately — this is a ledger and it reads like paper. Tokens live at the
+top of `src/styles.css`; `DESIGN.md` explains the palette. Numbers are tabular and
+right-aligned, currency amounts are monospace, status colour is semantic
+(emerald/slate/rose) and used nowhere decorative.
 
-1. **Static Analysis & Build Check**:
-   ```bash
-   npm run build
-   ```
-   Ensure Vite compiles with **0 errors**.
+## Adding a second business app
 
-2. **Calculation Integrity**:
-   - Verify that marking an invoice with a 15% tax deduction yields exact Net Received and Tax Amount figures.
-   - Verify that changing the Base Currency in the navbar recalculates Bento overview totals accurately without altering underlying invoice currencies.
+Copy the repo, point `BOOK` at a different workbook, change the port, write a new
+`.cmd`. Do not build a plugin system or a shared framework for apps that do not exist
+yet — two independent copies are cheaper to run and safer to break.
 
-3. **Responsive & Theme Verification**:
-   - Verify layout stability in both `data-theme="dark"` and `data-theme="light"`.
-   - Ensure the Bento Grid collapses gracefully from 12 columns to single column on viewports $< 1080\text{px}$.
+## Checks
 
----
-
-## 5. Summary of Key Files
-
-| File | Responsibility |
-| :--- | :--- |
-| `src/hooks/useFinanceStore.js` | Single source of truth for invoices, clients, settings, filters, and localStorage synchronization. |
-| `src/utils/calculations.js` | Aging logic, DSO calculation, USD pivot currency normalization, financial aggregation. |
-| `src/utils/excelHandler.js` | SheetJS bidirectional Excel `.xlsx` and `.csv` import/export pipeline. |
-| `src/components/DashboardMetrics.jsx` | 12-column Bento Grid executive dashboard. |
-| `src/components/InvoiceTable.jsx` | High-density data grid with segmented status tabs and sorting. |
-| `src/index.css` | OKLCH color tokens, typography scales, Bento grid classes, dark/light theme definitions. |
+`npm test` covers the workbook round trip, legacy-sheet parsing and date serials. Add
+to it when you change the mapping. There is no component test suite and none is wanted;
+verify UI changes by running the app.

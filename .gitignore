@@ -9,3 +9,11 @@ dist-ssr
 *.log
 .vscode/
 .idea/
+
+# ledger snapshots and in-flight saves
+backups/
+*.saving.xlsx
+
+# tauri build output
+src-tauri/target/
+src-tauri/gen/

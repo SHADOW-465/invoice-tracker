@@ -1,228 +1,310 @@
-# System Architecture & Technical Design
+# Architecture — FinanceOS
 
-This document details the architectural principles, component topology, state flow, and data processing pipelines of **Invoice Tracker**.
-
----
-
-## 1. Architectural Principles
-
-Invoice Tracker is built as a **zero-backend, client-side single page application (SPA)** adhering to the following core tenets:
-
-1. **Deterministic Financial Math**: All calculations (due dates, aging, currency conversions, tax deductions) are executed in pure, testable functional utilities isolated from rendering logic.
-2. **Instant Local Persistence**: Application state is continuously synchronized to browser `localStorage`, ensuring zero data loss across reloads, complete user data privacy, and instant offline availability.
-3. **Product UI Precision**: Handcrafted Vanilla CSS design system leveraging OKLCH color spaces, Bento Grid layout patterns, and monospace tabular numerals (`JetBrains Mono`).
-4. **Bidirectional Spreadsheet Fidelity**: Strict 1:1 data schema compatibility with standard Excel spreadsheet models (`Invoice Tracker.xlsx`).
+**Version:** 2.0.0 · **Last reviewed:** 23 August 2026
 
 ---
 
-## 2. Component Topology & Hierarchy
-
-```mermaid
-graph TD
-    App[App.jsx - Root Orchestrator & Modal Registry]
-    
-    subgraph Core View Layer
-        Navbar[Navbar.jsx - Brand, Actions, Currency & Theme Controls]
-        DashboardMetrics[DashboardMetrics.jsx - Bento Grid Executive Overview]
-        InvoiceTable[InvoiceTable.jsx - Precision Data Grid, Tabs & Filters]
-    end
-
-    subgraph Modal & Drawer Layer
-        InvoiceModal[InvoiceModal.jsx - Add/Edit Invoice Form]
-        MarkPaidModal[MarkPaidModal.jsx - Settlement & Tax Deductions]
-        InvoicePreviewModal[InvoicePreviewModal.jsx - Vector PDF & Email Generator]
-        ClientsModal[ClientsModal.jsx - Client Directory & Receivables]
-        SettingsModal[SettingsModal.jsx - Business Preferences & Banking]
-    end
-
-    subgraph Reactive State & Utilities
-        Store[useFinanceStore.js - Custom State Management Hook]
-        CalcEngine[calculations.js - Financial Math & Aging Engine]
-        ExcelHandler[excelHandler.js - SheetJS Parser & Exporter]
-        LocalStorage[(Browser LocalStorage)]
-    end
-
-    App --> Navbar
-    App --> DashboardMetrics
-    App --> InvoiceTable
-    App --> InvoiceModal
-    App --> MarkPaidModal
-    App --> InvoicePreviewModal
-    App --> ClientsModal
-    App --> SettingsModal
-
-    Navbar --> Store
-    DashboardMetrics --> Store
-    DashboardMetrics --> CalcEngine
-    InvoiceTable --> Store
-    InvoiceTable --> CalcEngine
-    InvoiceModal --> Store
-    MarkPaidModal --> Store
-    InvoicePreviewModal --> CalcEngine
-    ClientsModal --> Store
-    SettingsModal --> Store
-
-    Store <--> LocalStorage
-    Navbar --> ExcelHandler
-    ExcelHandler --> CalcEngine
-```
-
----
-
-## 3. State Management Architecture (`useFinanceStore`)
-
-State management is centralized within `src/hooks/useFinanceStore.js`, exposing a clean reactive interface without the boilerplate of heavy external state libraries.
+## 1. The shape in one picture
 
 ```
-+-------------------------------------------------------------------------+
-|                           useFinanceStore                               |
-|                                                                         |
-|  State Slices:                                                          |
-|  - invoices: Array<Invoice>             - searchQuery: String           |
-|  - clients: Array<Client>               - statusFilter: String          |
-|  - settings: BusinessSettings           - currencyFilter: String        |
-|  - baseCurrency: String ("USD")         - monthFilter: String           |
-|  - theme: String ("dark" | "light")      - sortField / sortDirection     |
-|                                                                         |
-|  Mutators & Actions:                                                    |
-|  - addInvoice(data)                     - markInvoiceAsPaid(id, data)   |
-|  - updateInvoice(id, fields)            - importInvoices(list, mode)    |
-|  - deleteInvoice(id)                    - resetToSampleData()           |
-|  - duplicateInvoice(id)                 - getNextInvoiceNumber()        |
-|                                                                         |
-|  Derived Memoized Selectors:                                            |
-|  - filteredInvoices: Computed via useMemo based on search + filters     |
-+-------------------------------------------------------------------------+
-                                   ▲ |
-                                   | | Reactive Persistence
-                                   | ▼
-+-------------------------------------------------------------------------+
-|                           Browser LocalStorage                          |
-|  - apex_finance_invoices_v1     - apex_finance_settings_v1              |
-|  - apex_finance_clients_v1      - apex_finance_base_currency_v1         |
-|  - apex_finance_theme_v1                                                |
-+-------------------------------------------------------------------------+
+┌─────────────────────────────────────────────────────────────────────┐
+│  React interface  (src/screens, src/components)                     │
+│  One `ctx` object carries data + actions to every screen            │
+└───────────────────────────────┬─────────────────────────────────────┘
+                                │  ctx.saveInvoice / deleteInvoice / …
+┌───────────────────────────────▼─────────────────────────────────────┐
+│  src/lib/api.js — picks a shell at runtime                          │
+│  window.__TAURI_INTERNALS__ present?  desktop : http                │
+└──────────────┬──────────────────────────────────┬───────────────────┘
+               │                                  │
+┌──────────────▼─────────────────┐  ┌─────────────▼───────────────────┐
+│ DESKTOP SHELL                  │  │ BROWSER SHELL                   │
+│ src/lib/desktop.js             │  │ src/lib/api.js → HTTP           │
+│ Tauri fs + dialog plugins      │  │ server/server.js  (node:http)   │
+│ runs inside the webview        │  │ server/store.js   (node:fs)     │
+└──────────────┬─────────────────┘  └─────────────┬───────────────────┘
+               │                                  │
+               └───────────────┬──────────────────┘
+                               ▼
+        ┌──────────────────────────────────────────────┐
+        │  src/lib/workbook.js — THE SHARED CORE       │
+        │  parseWorkbook · buildWorkbook                │
+        │  validateInvoice · normalizeClient            │
+        │  mutations{create,update,delete,client,…}     │
+        │  pure: bytes in, bytes out, no filesystem     │
+        └──────────────────────┬───────────────────────┘
+                               ▼
+                   Invoice Tracker.xlsx  +  backups/
 ```
 
-### Key State Characteristics
-- **Optimistic Synchronous Updates**: UI state updates instantaneously.
-- **Side-Effect Isolation**: React `useEffect` blocks listen to state changes and serialize JSON payloads to `localStorage` safely wrapped in try-catch guards.
-- **Auto-Provisioning of Clients**: When an invoice is created with a client name not present in `clients`, `useFinanceStore` automatically registers a new client profile with default payment terms and currency.
-- **Sequence Generation**: `getNextInvoiceNumber` scans all existing invoice numbers, extracts digits via regex `/\d+/`, computes the max integer, and produces the next zero-padded sequence (e.g. `SnS02535`).
+The important line in that diagram is the shared core. Everything above it is
+presentation; everything below it is bytes on a disk. The rules of the spreadsheet live
+in exactly one place.
 
----
+## 2. Why two shells
 
-## 4. Data Processing Pipelines
+The desktop build is the product. The browser build exists because building the desktop
+app needs Rust and MSVC build tools, and there must be a way to run FinanceOS on a
+machine where those cannot be installed.
 
-### 4.1 Excel Ingestion Pipeline (`excelHandler.js`)
+The naive way to support both is to write the ledger logic twice — once in Rust for the
+desktop, once in JavaScript for the server. That guarantees the two drift apart, and the
+divergence shows up as a wrong number in a financial record.
 
-The Excel ingestion pipeline parses uploaded `.xlsx`, `.xls`, or `.csv` files asynchronously using `SheetJS` (`xlsx`).
+Instead: **SheetJS runs in the webview.** Tauri's `fs` plugin hands the JavaScript layer
+raw bytes and takes raw bytes back, so the same parsing and writing code runs in both
+builds. The Rust side is twelve lines and holds no business logic at all:
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as Navbar / FileInput
-    participant Parser as excelHandler.js (parseExcelFile)
-    participant SheetJS as SheetJS (XLSX)
-    participant Store as useFinanceStore (importInvoices)
-
-    User->>UI: Selects .xlsx / .csv file
-    UI->>Parser: Passes File object
-    Parser->>SheetJS: readAsArrayBuffer -> XLSX.read(data, { cellDates: true })
-    SheetJS-->>Parser: Workbook Sheet AST
-    Parser->>Parser: Column Header Normalization (fuzzy match synonyms)
-    Parser->>Parser: Date ISO Conversion (YYYY-MM-DD)
-    Parser->>Parser: Tax Deduction Heuristic (detect "15% tax" in remarks)
-    Parser->>Parser: Aging & Due Date derivation
-    Parser-->>UI: Array of Normalized Invoice Objects
-    UI->>Store: importInvoices(parsed, "merge")
-    Store->>Store: Deduplicate by invoiceNo
-    Store-->>User: Toast Notification: "Imported N invoices successfully!"
+```rust
+tauri::Builder::default()
+    .plugin(tauri_plugin_dialog::init())
+    .plugin(tauri_plugin_fs::init())
+    .run(tauri::generate_context!())
 ```
 
-#### Header Synonym Normalization Map
-To accommodate various Excel templates, the parser normalizes diverse header naming conventions:
-- **Invoice Number**: `"Invoice #"`, `"Invoice No"`, `"Invoice"`, `"Invoice \n#"`
-- **Client Name**: `"Client Name"`, `"Client"`
-- **Amount**: `"Actual Invoiced Amt"`, `"Amount"`, `"Invoiced Amt"`
-- **Payment Mode**: `"Mode of Payment"`, `"Payment Mode"`
-- **Currency (UOM)**: `"UOM"`, `"Currency"`
-- **Raised Date**: `"Raised on"`, `"Raised Date"`, `"Date"`
-- **Received Date**: `"Received on"`, `"Received Date"`
-- **Status**: `"Collection Status"`, `"Collection \nStatus"`, `"Status"`
-- **Remarks**: `"Remarks"`, `"Notes"`
+| | Desktop | Browser |
+|---|---|---|
+| Window | Native (WebView2 / WKWebView) | Edge in app mode |
+| Data path | webview → Tauri fs plugin → disk | webview → HTTP → `node:fs` → disk |
+| Sockets | None | `127.0.0.1:4321` |
+| Workbook location | Chosen via file picker, remembered | `LEDGER_FILE` or beside the app |
+| Requires | Nothing (once installed) | Node.js LTS |
+| Distribution | NSIS/MSI installer, ~12 MB | Repo + `FinanceOS.cmd` |
 
----
-
-### 4.2 Financial Calculation Pipeline (`calculations.js`)
-
-All financial computations run through `calculateFinancialMetrics()`:
-
-```mermaid
-flowchart LR
-    InvList[Invoice List] --> Iter[Invoice Iterator]
-    Iter --> Aging[calculateAging]
-    Iter --> CurrConv[convertToBaseCurrency]
-    
-    Aging --> Bucket[Aging Buckets: 0-30d, 31-60d, 61-90d, 90d+]
-    Aging --> DSO[DSO / Days to Collect Accumulator]
-    
-    CurrConv --> Totals[Aggregate Base Totals]
-    Totals --> TotalInv[Total Invoiced]
-    Totals --> TotalRec[Collected Net]
-    Totals --> TotalPend[Active Pending]
-    Totals --> TotalOver[Overdue]
-    Totals --> TotalTax[Tax Withheld]
-    
-    Iter --> MonthTrend[Monthly Trend Map: Invoiced vs Collected]
-    Iter --> CurrDist[Currency Breakdown Map]
-```
-
----
-
-### 4.3 PDF Vector Generation Pipeline (`InvoicePreviewModal.jsx`)
-
-PDF invoices are compiled directly on the client side using vector geometry via `jsPDF`, avoiding bloated HTML canvas rendering for crisp text reproduction:
-1. **Document Setup**: A4 canvas grid dimensions (595pt x 842pt).
-2. **Branding & Coordinates**: Company header, invoice metadata header, and separator rules.
-3. **Billed-To & Terms Section**: Client name, payment mode, and payment terms.
-4. **Service Table**: Rendered with column headers and right-aligned monospace monetary values.
-5. **Totals & Withholding Tax**: Displays subtotal, tax deduction discount (if any), and grand total.
-6. **Remittance Notes**: Splits bank instructions and remarks using `doc.splitTextToSize`.
-
----
-
-## 5. Bento Grid Layout Architecture
-
-The executive dashboard employs a **12-column Bento Grid** system:
+## 3. Module map
 
 ```
-+-----------------------------------------------------------------------------+
-|                          Bento Wrapper (12 Columns)                         |
-+------------------------------------------+----------------------------------+
-| Card 1: Realized Cash & Collection Rate  | Card 2: Receivables & Aging Risk |
-| (Span 7 Columns)                         | (Span 5 Columns)                 |
-| - Net Collected (Large Monospace)        | - Active Pending within terms    |
-| - Collection Rate Badge (e.g. 95%)       | - Overdue Amount past due terms  |
-| - Dual-Color Progress Realization Bar    | - Overdue Days / Action Badge    |
-| - Substats: Tax Withheld | DSO Speed     | - Aging Micro-Strip (30/60/90d)  |
-+------------------------------------------+----------------------------------+
-| Card 3: Monthly Cash Flow Momentum       | Card 4: Multi-Currency Allocation|
-| (Span 7 Columns - Expanded View)         | (Span 5 Columns - Expanded View) |
-| - Dual-bar chart: Invoiced vs Collected  | - Native Currency Balances       |
-| - Month labels (Jan, Feb, ...)           | - Invoice Count & Active UOMs    |
-+------------------------------------------+----------------------------------+
+src/lib/workbook.js     The spreadsheet contract. Column mapping, coercion, date
+                        encoding, validation, mutations. Pure. ~420 lines.
+src/lib/derive.js       Everything computed from the raw rows: currency conversion,
+                        aging, totals, monthly series, client statistics, next
+                        invoice number. Pure.
+src/lib/format.js       Presentation of dates and money. Pure.
+src/lib/exporters.js    CSV, invoice PDF (jsPDF), reminder email text.
+src/lib/api.js          Runtime shell selection.
+src/lib/desktop.js      Tauri IO: read, atomic write, snapshot, workbook picker.
+
+server/store.js         Node IO: read, atomic write, snapshot. 39 lines.
+server/server.js        node:http. Six routes, static file serving, error mapping.
+server/store.test.js    35 assertions. `npm test`.
+
+src/App.jsx             State root: loads data, holds route and display currency,
+                        builds the `ctx` object, owns drawers/toasts/palette.
+src/components/         Topbar, RowMenu, three drawers, CommandPalette, Welcome, ui.
+src/screens/            Workspace (home), InvoiceDetail, Collections, Clients,
+                        ClientProfile, Payments, Reports, Settings.
+src/styles.css          All styling; design tokens at the top.
+
+src-tauri/              Window, plugins, capabilities, icons, bundle config.
 ```
 
-### Responsive Breakpoints
-- **Desktop (≥ 1080px)**: 12-column Bento grid (`span 7` + `span 5`).
-- **Tablet & Mobile (< 1080px)**: Cards automatically expand to `span 12` (single-column stack) ensuring touch accessibility and zero text clipping.
+## 4. Data flow
 
----
+### 4.1 Reading
 
-## 6. Security, Performance & Data Isolation
+```
+load → shell reads file bytes → parseWorkbook(bytes)
+     → { invoices, clients, settings }
+     → decorate(invoices, rates, displayCurrency)
+     → derived fields: status, overdueDays, base, receivedBase, taxBase, …
+     → screens render
+```
 
-- **Zero Cloud Leakage**: No financial transaction data or client contact details leave the browser.
-- **XSS & Injection Protection**: User inputs in the table, preview modals, and PDF generators are sanitized and rendered using React text nodes and vector text calls.
-- **Memory Footprint**: Bundle size is optimized via Vite tree-shaking, lightweight CSS design tokens, and modular Lucide icon imports.
+`decorate` is the only place `Overdue` comes into existence, and it happens on every
+render pass. There is no stored status that can be wrong tomorrow morning.
+
+### 4.2 Writing
+
+```
+user action
+  → ctx.saveInvoice(no, body)
+  → api.updateInvoice → shell
+      → read current bytes          ← re-read, not cached state
+      → parseWorkbook
+      → mutations.updateInvoice     ← validation happens here
+      → buildWorkbook(data, existingBytes)
+      → snapshot current file into backups/
+      → write temp file, rename over target   ← atomic
+      → read back
+  → App.setData(fresh dataset)
+  → toast
+```
+
+Four properties fall out of this ordering:
+
+1. **No stale writes.** A hand edit made in Excel between two clicks survives, because
+   the mutation is applied to what is on disk now, not to what the browser loaded.
+2. **No partial writes.** The rename is atomic; a crash leaves the old file intact.
+3. **No lost history.** The snapshot precedes the write.
+4. **No drift.** The interface renders what came back from disk, not what it hoped it
+   wrote.
+
+The cost is a full parse-and-serialise per action — a few milliseconds at this scale,
+and the honest trade for correctness. See ADR-4.
+
+## 5. State ownership
+
+| State | Lives in | Persisted |
+|---|---|---|
+| Invoices, clients, settings | The workbook | Yes — it *is* the database |
+| Display currency | `App.jsx` `useState` | No: a view choice, resets to the workbook base |
+| Route (screen + params) | `App.jsx` `useState` | No |
+| Drawer / palette / toast | `App.jsx` `useState` | No |
+| Filters, sort, search | `Workspace.jsx` `useState` | No |
+| Analytics panel open | `localStorage` | Yes — a preference, not data |
+| Chosen workbook path (desktop) | `localStorage` | Yes — a pointer, not data |
+
+Nothing in the first row is ever mirrored into React state as a source of truth. The
+`ctx` object is rebuilt from the last known-good read.
+
+### The `ctx` object
+
+Every screen receives one prop. It carries the decorated data, the display-currency
+controls, navigation, and every action:
+
+```js
+{ all, list, clients, settings, base, ledgerBase, currencies, rates, file,
+  route, go, fire, isDesktop,
+  setBase, openPalette, newInvoice, editInvoice, recordPayment, editClient,
+  chooseLedger, saveInvoice, duplicateInvoice, deleteInvoice, saveClient, saveSettings }
+```
+
+This is deliberately a plain object rather than a context provider or a store library:
+one file constructs it, one prop passes it, and there is no indirection to trace when a
+number looks wrong.
+
+## 6. Error handling
+
+| Condition | Behaviour |
+|---|---|
+| Validation failure | `400` / thrown error with a list of human-readable reasons; nothing written |
+| Duplicate invoice number | `409`; nothing written |
+| Invoice not found | `404` |
+| Workbook open in Excel | `423` (or equivalent thrown error) with the filename and the remedy |
+| Workbook missing (desktop) | Picker offered; no silent replacement created |
+| Anything else | `500`, logged to the server console, surfaced as an error toast |
+
+Every failure path leaves the workbook untouched and tells the user in one sentence what
+to do. There are no silent retries — a locked file gets a clear message, not a loop.
+
+## 7. Architecture decisions
+
+### ADR-1 — Excel as the database
+
+**Context.** The owner keeps, trusts and wants to keep a spreadsheet. Any migration to a
+"real" database makes the spreadsheet a stale export.
+
+**Decision.** The workbook is the system of record. No shadow database, no cache.
+
+**Consequences.** Zero migration and zero lock-in; Excel remains a first-class view.
+Costs: no concurrency, no row history, whole-file rewrites, and an exclusive-lock
+failure mode while the file is open. Mitigated by single-writer design, atomic writes
+and rolling snapshots.
+
+**Reversal path.** Swap `parseWorkbook`/`buildWorkbook` for SQLite behind the same
+function signatures, keeping the workbook as a generated export. No screen changes.
+
+### ADR-2 — One shared core, two thin shells
+
+**Context.** Two runtimes, one set of financial rules.
+
+**Decision.** All mapping, validation and mutation logic is pure JavaScript in
+`src/lib/workbook.js`, driven by both shells. SheetJS runs in the webview on desktop.
+
+**Consequences.** The builds cannot disagree. Rust holds no logic, so no Rust knowledge
+is needed to change behaviour. Cost: parsing happens in the webview, so a very large
+workbook competes with the UI thread — acceptable at this scale.
+
+### ADR-3 — Derived status, never stored
+
+**Context.** The original sheet had a "Due by (days)" column that was stale on arrival.
+
+**Decision.** Only facts are stored (`Received` / `Outstanding`, dates, amounts).
+`Overdue`, days late, aging and all totals are computed at read time.
+
+**Consequences.** The ledger cannot rot. A file untouched for six months reports
+correctly the day it is opened. Legacy values like `Pending` collapse to `Outstanding`
+on read, converging the file on one vocabulary.
+
+### ADR-4 — Read-modify-write per action
+
+**Context.** A user may edit the workbook in Excel while the app is open.
+
+**Decision.** Every mutation re-reads the file, applies the change, writes, and re-reads.
+
+**Consequences.** Concurrent hand-edits survive. Cost: a full parse/serialise per
+action. Measured in milliseconds here; revisit above ~50,000 rows.
+
+### ADR-5 — Hand-rolled Excel date serials
+
+**Context.** SheetJS writes `Date` objects ten seconds past midnight and reads them back
+a few seconds short of it, which shifts the calendar day across timezones.
+
+**Decision.** Dates are ISO strings in memory. On write, `stampDates` converts the three
+date columns to whole-day serial numbers with a `yyyy-mm-dd` number format. On read, a
+one-minute nudge plus local calendar parts recovers the day.
+
+**Consequences.** Dates survive round trips exactly, in any timezone, and Excel still
+sees real dates it can sort and subtract. Verified by assertions in `store.test.js` —
+change this code and run the tests.
+
+### ADR-6 — No network, ever
+
+**Context.** "Local only" that fetches fonts from a CDN is not local only.
+
+**Decision.** Fonts are self-hosted (80 KB in `public/fonts/`); the desktop CSP allows
+`self` only; exchange rates are entered by hand.
+
+**Consequences.** Works offline, on a plane, behind any firewall. No third party learns
+the business's billing cadence. Rates require manual upkeep — which is also correct for
+an auditable ledger: a recorded figure must not change because a market moved.
+
+### ADR-7 — Display currency converts, never filters
+
+**Context.** Version 2.0.0 initially shipped the currency selector as a filter, which
+hid invoices and understated totals.
+
+**Decision.** The display currency restates every figure through the base currency. A
+separate control on the ledger filters by invoice currency.
+
+**Consequences.** Two clearly-labelled controls instead of one ambiguous one.
+`convert()` is the single conversion path, covered by tests.
+
+### ADR-8 — One page for the daily loop
+
+**Context.** The redesign's nine screens looked good but made routine work — scan, find,
+act — a navigation exercise.
+
+**Decision.** `Workspace` merges the dashboard and the ledger; per-row actions (edit,
+duplicate, record payment, PDF, delete) happen in place. Separate screens must earn
+their room. Edits return you to where you started.
+
+**Consequences.** Depth is available but never on the critical path. New features
+default to the row menu or a drawer, not a new tab.
+
+## 8. Build and distribution
+
+```
+npm run build          Vite → dist/            (both shells consume this)
+npm run desktop:build  Vite → dist/ → Tauri → src-tauri/target/release/bundle/nsis/
+npm start              Vite → dist/ → node server/server.js on :4321
+npm run desktop        Vite dev server + Tauri window, hot reload
+npm run dev            Vite dev server on :3000, /api proxied to :4321
+npm test               node server/store.test.js
+```
+
+Dependencies are deliberately few: React, SheetJS, jsPDF, and the three Tauri packages.
+No state library, no component library, no CSS framework, no test framework.
+
+## 9. Security posture
+
+- No authentication, because there is no remote surface to authenticate to.
+- Browser mode binds to loopback only.
+- Desktop filesystem access is scoped by Tauri capabilities to the user's home,
+  documents, desktop and downloads directories.
+- CSP permits `self` origins only; no external scripts, styles, fonts or images.
+- Input is validated at the boundary in both shells before it can reach the workbook.
+- Request bodies are capped at 2 MB.
+
+The realistic threat model is not an attacker — it is data loss. That is what the atomic
+writes, the snapshots and the round-trip tests are defending.

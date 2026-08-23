@@ -1,72 +1,57 @@
-# Invoice Tracker Documentation
+# FinanceOS — Documentation
 
-Welcome to the comprehensive documentation for **Invoice Tracker** — a precision financial receivables ledger and cash flow tracking application built for freelancers, agencies, finance managers, and small businesses.
+Reference documentation for FinanceOS, a local-only invoice and receivables ledger
+backed directly by an Excel workbook.
 
----
+**Version:** 2.0.0 · **Last reviewed:** 23 August 2026 · **Status:** in production use by
+one operator, one workbook.
 
-## Documentation Index
-
-| Document | Description |
-| :--- | :--- |
-| **[Architecture & System Design](./architecture.md)** | High-level system architecture, component topology, state management, and data flow pipelines. |
-| **[Financial Calculation Engine](./financial-engine.md)** | Mathematical specifications for multi-currency conversion, dynamic aging, DSO, tax deductions (TDS), and aggregation algorithms. |
-| **[Data Schema & Data Models](./data-schema.md)** | Full entity models (Invoices, Clients, Settings), storage keys, and bidirectional Excel `.xlsx` mapping specifications. |
-| **[Component Catalog & API Reference](./components.md)** | Detailed documentation of all React components, props, state machines, and user interface workflows. |
-| **[Bento Grid & Design System](./design-system.md)** | Design tokens, OKLCH color palettes (Dark/Light themes), Bento Grid specifications, typography, and accessibility. |
-| **[User Guide & Workflows](./user-guide.md)** | Step-by-step manual for issuing invoices, recording settlements, importing/exporting Excel files, and generating PDF invoices. |
+If you only want to run the thing, the root [`README.md`](../README.md) is the quick
+start. These documents are the depth behind it.
 
 ---
 
-## Executive Overview
+## The document set
 
-**Invoice Tracker** was engineered to replace fragile manual Excel spreadsheets (specifically modeled after `Invoice Tracker.xlsx`) with an automated, reactive, and robust web application.
+| Document | Answers |
+|---|---|
+| [PRD.md](PRD.md) | Who this is for, what problem it solves, what is deliberately out of scope, and how we know it worked. |
+| [SRS.md](SRS.md) | Every functional and non-functional requirement, numbered and testable. |
+| [architecture.md](architecture.md) | How the system is put together, why it is shaped that way, and the decisions that are hard to reverse. |
+| [data-model.md](data-model.md) | The workbook schema: sheets, columns, types, legacy aliases, derived fields, invariants. |
+| [financial-logic.md](financial-logic.md) | Every formula — conversion, aging, withholding, reconciliation, collection metrics — with worked examples. |
+| [ui-spec.md](ui-spec.md) | Screen-by-screen specification, interaction rules, states, keyboard map. |
+| [operations.md](operations.md) | Install, run, build, back up, restore, troubleshoot, and clone into a second business app. |
+| [testing.md](testing.md) | What the automated checks cover, how to run them, and the manual QA script. |
 
-```mermaid
-graph TD
-    A[Excel Sheet / User Entry] -->|SheetJS Parser / Form| B[State Store / LocalStorage]
-    B --> C[Financial Calculation Engine]
-    C --> D[Executive Bento Grid Overview]
-    C --> E[Precision Invoice Ledger Table]
-    C --> F[Client Directory & Analytics]
-    C --> G[Vector PDF & Reminder Generator]
-    E -->|SheetJS Exporter| H[Excel .xlsx Download]
-```
+Supporting documents outside this folder:
 
-### Core Capabilities
-- **Bento Grid Executive Dashboard**: High-density modular overview displaying realized cash flow, collection rates, active pending balances, overdue aging, and monthly trends.
-- **Dynamic Aging & Payment Term Calculators**: Automated computation of due dates, days outstanding, days to collect, and overdue duration based on terms (Net 0, 15, 30, 45, 60, Custom).
-- **Tax & TDS Withholding Reconciliation**: Direct support for gross vs net amounts with automated tax deduction percentages (e.g. 15% withholding tax) and remarks logging.
-- **Multi-Currency Normalization**: Real-time conversion engine allowing portfolio totals in a customizable Base Currency (`USD`, `EUR`, `GBP`, `CHF`, `INR`, `CAD`, `AUD`, `SGD`) while preserving native transaction currencies.
-- **Bidirectional Excel Interoperability**: Flawless 1-click export to `.xlsx` maintaining exact column headers and structure from the original spreadsheet, plus drag-and-drop file import.
-- **Vector PDF & Reminder Generator**: Client-side branded PDF invoice generation and instant email payment reminder template generator.
-- **Zero-Backend Privacy**: 100% client-side persistence via `localStorage`, offline-first readiness, and zero telemetry.
+- [`../PRODUCT.md`](../PRODUCT.md) — brand personality and design principles.
+- [`../DESIGN.md`](../DESIGN.md) — the visual system: palette, type, layout, motion.
+- [`../AGENTS.md`](../AGENTS.md) — working rules for anyone (human or AI) changing the code.
 
 ---
 
-## Quick Start for Developers
+## The one-paragraph summary
 
-```bash
-# 1. Install dependencies
-npm install
+FinanceOS replaces a hand-kept invoice spreadsheet with a real interface, without
+taking the spreadsheet away. The Excel workbook remains the database — not an import
+source, not an export target, the actual system of record. A single mapping module
+(`src/lib/workbook.js`) defines what the spreadsheet means; two thin shells drive it, a
+Tauri desktop app that touches the file directly and a Node server for browser mode.
+Nothing leaves the machine: no cloud, no account, no telemetry, and no network requests
+at all — the fonts are bundled.
 
-# 2. Run local development server
-npm run dev
+## The five things that constrain every decision
 
-# 3. Build for production
-npm run build
-
-# 4. Preview production build
-npm run preview
-```
-
----
-
-## Technology Stack
-
-- **Framework**: React 18 (`react`, `react-dom`)
-- **Build Tool**: Vite 5 (`vite`, `@vitejs/plugin-react`)
-- **Styling**: Handcrafted Vanilla CSS with OKLCH color tokens, Bento Grid layout, and zero third-party UI framework bloat.
-- **Iconography**: Lucide Icons (`lucide-react`)
-- **Excel Processing**: SheetJS (`xlsx`)
-- **PDF Generation**: jsPDF (`jspdf`)
-- **Celebration Effects**: Canvas Confetti (`canvas-confetti`)
+1. **The workbook is the truth.** Nothing is cached in the browser. Every action is a
+   read-modify-write against the file, so an edit made by hand in Excel between two
+   clicks is never silently overwritten.
+2. **One writer, always snapshot-then-rename.** A crash mid-save cannot corrupt the
+   ledger, and the previous thirty saves are recoverable.
+3. **One implementation of the rules.** Desktop and browser builds share the mapping
+   and validation module, so they cannot disagree about what a row means.
+4. **Derive, do not store.** `Overdue`, aging, totals and every converted figure are
+   computed at read time. Only facts live in the sheet.
+5. **Local only, forever.** No sync, no multi-user, no server component beyond
+   `127.0.0.1`. Features that require any of those are out of scope by design.

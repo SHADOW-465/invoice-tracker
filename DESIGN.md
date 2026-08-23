@@ -1,62 +1,63 @@
-# Design System: Invoice Tracker
+# Design
 
-## Color Palette (OKLCH)
+FinanceOS reads like paper: warm off-white ground, quiet hairlines, ink-black type,
+and colour reserved entirely for financial state. Light only — a ledger does not need
+a dark mode, and a second theme is a second set of contrast bugs.
 
-### Dark Theme (Default)
-- **Background App**: `oklch(0.13 0.012 260)` (deep obsidian slate)
-- **Background Surface**: `oklch(0.17 0.015 260)` (subtle elevated container)
-- **Background Surface Hover**: `oklch(0.22 0.018 260)`
-- **Background Input**: `oklch(0.15 0.014 260)`
-- **Border Subtle**: `oklch(0.25 0.015 260)`
-- **Border Strong**: `oklch(0.32 0.020 260)`
-- **Text Primary**: `oklch(0.96 0.005 260)`
-- **Text Secondary**: `oklch(0.75 0.012 260)`
-- **Text Muted**: `oklch(0.55 0.015 260)`
+The canonical values live at the top of `src/styles.css`. This file explains them.
 
-### Light Theme
-- **Background App**: `oklch(0.98 0.004 250)` (crisp off-white)
-- **Background Surface**: `oklch(1.0 0 0)` (pure white)
-- **Background Surface Hover**: `oklch(0.95 0.008 250)`
-- **Border Subtle**: `oklch(0.88 0.008 250)`
-- **Border Strong**: `oklch(0.78 0.015 250)`
-- **Text Primary**: `oklch(0.15 0.015 260)`
-- **Text Secondary**: `oklch(0.38 0.015 260)`
-- **Text Muted**: `oklch(0.55 0.012 260)`
+## Palette
 
-### Semantic Status Tokens
-- **Received (Paid)**:
-  - Dark: bg `oklch(0.22 0.06 145)`, text `oklch(0.86 0.16 145)`, border `oklch(0.35 0.09 145)`
-  - Light: bg `oklch(0.94 0.06 145)`, text `oklch(0.32 0.14 145)`, border `oklch(0.82 0.08 145)`
-- **Pending**:
-  - Dark: bg `oklch(0.23 0.06 75)`, text `oklch(0.88 0.14 75)`, border `oklch(0.38 0.09 75)`
-  - Light: bg `oklch(0.95 0.06 75)`, text `oklch(0.42 0.14 75)`, border `oklch(0.84 0.09 75)`
-- **Overdue**:
-  - Dark: bg `oklch(0.22 0.07 25)`, text `oklch(0.88 0.16 25)`, border `oklch(0.38 0.10 25)`
-  - Light: bg `oklch(0.95 0.06 25)`, text `oklch(0.38 0.16 25)`, border `oklch(0.84 0.10 25)`
+| Token | Value | Used for |
+|---|---|---|
+| `--paper` | `#F6F6F4` | Page ground |
+| `--panel` | `#FBFBFA` | Sidebar, drawers |
+| `--card` | `#FFFFFF` | Cards and tables |
+| `--ink` | `#14161A` | Primary type, primary buttons |
+| `--ink-2` | `#26282D` | Values in key/value pairs |
+| `--muted` | `#5F5F59` | Secondary type |
+| `--faint` | `#9A9A94` | Labels, metadata |
+| `--ghost` | `#B5B5AF` | Empty values, axis labels |
+| `--line` | `rgba(17,19,24,.08)` | Hairlines |
+| `--accent` | `#1A4D8F` | Invoiced series, links, focus |
+| `--accent-soft` | `#9FBEDD` | Collected series |
+| `--green` | `#2F6B4F` | Received |
+| `--slate` | `#41505F` | Outstanding |
+| `--red` | `#A8382F` | Overdue, shortfalls |
+| `--amber` | `#C8862B` | Withholding, due soon |
 
-## Typography
+Status colour appears in badges, aging bars and priority rails only. It is never
+decorative, never a gradient, and never used to make a number feel exciting.
 
-- **UI Sans**: `Plus Jakarta Sans`, system-ui, -apple-system, sans-serif
-- **Monospace Numeral Stack**: `JetBrains Mono`, monospace (for currency, invoice numbers, dates, calculations)
-- **Hierarchy Scale**:
-  - Title / Header: `1.125rem` (18px), font-weight 700
-  - Section Headings: `0.9375rem` (15px), font-weight 600
-  - Table Headers: `0.75rem` (12px), uppercase, letter-spacing `0.04em`
-  - Body Text: `0.875rem` (14px)
-  - Microcopy / Badges: `0.75rem` (12px)
+## Type
 
-## Layout, Density & Bento Grid Architecture
+`Geist` for interface text, `Geist Mono` for anything numeric that must line up —
+invoice numbers, currency amounts, rates. Body is 14px; tables run 12.5px because
+density is the point. Every numeric column uses `font-variant-numeric: tabular-nums`
+and is right-aligned so magnitudes compare at a glance.
 
-- **Max Container Width**: `1480px`
-- **Bento Grid System**: 12-column responsive layout:
-  - **Hero Realized Cash Flow Card**: `span 7` columns (`bento-card-hero`)
-  - **Receivables & Aging Health Card**: `span 5` columns (`bento-card-risk`)
-  - **Monthly Cash Flow Momentum Chart**: `span 7` columns (`bento-card-chart`)
-  - **Portfolio Multi-Currency Allocation**: `span 5` columns (`bento-card-currency`)
-  - **Responsive Collapse**: Collapses to single-column (`span 12`) on viewports $< 1080\text{px}$.
-- **Table Density**:
-  - Compact header height: `32px` (uppercase, letter-spacing `0.04em`)
-  - Data row height: `44px` compact standard
-  - Right-aligned monospace monetary values (`.mono-num`)
-- **Interactive Controls**: `32px` - `36px` height with `6px` border-radius
-- **Modals**: Centered, max-width `580px` (standard) or `780px` (large), backdrop blur `4px`, keyboard dismissible (`Esc`)
+Headings are 25px/600 with `-0.028em` tracking. KPI values are 23px/600. Nothing on
+the page is larger than that — an oversized hero number is the house style of software
+that has nothing to say.
+
+## Layout
+
+- Sidebar is a fixed 236px rail. Everything else is a single 1220px content column.
+- Cards: white, 1px hairline, 12px radius, no shadow at rest. Shadow appears only on
+  a hover lift for cards that are actually clickable.
+- Radii: 6px small controls, 9px buttons and inputs, 12px cards.
+- Drawers slide from the right at 460px. Modals are not used — a drawer keeps the
+  ledger visible behind the work.
+
+## Motion
+
+`fadeUp` on page change, `slideIn` for drawers, `pop` for tooltips and toasts, all
+140–200ms. Bars animate their height over 400ms on data change. Everything collapses
+to near-zero under `prefers-reduced-motion`.
+
+## Accessibility
+
+Body text clears 4.5:1 on its ground; `--faint` is reserved for supporting text at or
+above the large-text threshold. Focus is a 2px `--accent` ring with a 2px offset, never
+removed. `Esc` closes every overlay, the command palette is fully arrow-navigable, and
+toasts announce through `role="status"`.

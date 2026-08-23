@@ -1,0 +1,13 @@
+{
+  "name": "FinanceOS — Invoice Ledger",
+  "short_name": "FinanceOS",
+  "description": "Local invoice and receivables ledger, backed by your Excel workbook.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F6F6F4",
+  "theme_color": "#F6F6F4",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
