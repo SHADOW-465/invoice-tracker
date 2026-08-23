@@ -27,9 +27,11 @@ export function InvoiceModal({
     taxRate: "0",
     remarks: ""
   });
+  const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
     if (isOpen) {
+      setErrorMessage("");
       if (initialData) {
         setFormData({
           invoiceNo: initialData.invoiceNo || "",
@@ -70,6 +72,7 @@ export function InvoiceModal({
   if (!isOpen) return null;
 
   const handleRaisedOnChange = (e) => {
+    setErrorMessage("");
     const val = e.target.value;
     const m = getMonthName(val);
     let due = formData.dueDate;
@@ -88,6 +91,7 @@ export function InvoiceModal({
   };
 
   const handleTermsChange = (e) => {
+    setErrorMessage("");
     const term = e.target.value;
     let due = formData.dueDate;
     if (term.includes("15")) due = calculateDueDate(formData.raisedOn, 15);
@@ -105,8 +109,16 @@ export function InvoiceModal({
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!formData.invoiceNo.trim() || !formData.clientName.trim() || !formData.amount) {
-      alert("Please fill in Invoice #, Client Name, and Amount");
+    if (!formData.invoiceNo.trim()) {
+      setErrorMessage("Please enter an Invoice Number (e.g. SnS02535)");
+      return;
+    }
+    if (!formData.clientName.trim()) {
+      setErrorMessage("Please enter or select a Client Name");
+      return;
+    }
+    if (!formData.amount || isNaN(parseFloat(formData.amount)) || parseFloat(formData.amount) <= 0) {
+      setErrorMessage("Please enter a valid invoice amount greater than 0");
       return;
     }
 
@@ -139,6 +151,12 @@ export function InvoiceModal({
 
         <form onSubmit={handleSubmit}>
           <div className="modal-body">
+            {errorMessage && (
+              <div className="form-error-banner">
+                <AlertCircle size={15} style={{ flexShrink: 0 }} />
+                <span>{errorMessage}</span>
+              </div>
+            )}
             <div className="form-grid">
               {/* Invoice # */}
               <div className="form-group">

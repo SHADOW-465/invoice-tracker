@@ -19,6 +19,7 @@ import { CURRENCIES } from "../types/finance";
 import { CustomSelect } from "./CustomSelect";
 import { InlineStatusDropdown } from "./InlineStatusDropdown";
 import { InlinePaymentModeDropdown } from "./InlinePaymentModeDropdown";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 export function InvoiceTable({
   store,
@@ -49,6 +50,16 @@ export function InvoiceTable({
 
   // Selected rows for bulk actions
   const [selectedIds, setSelectedIds] = useState(new Set());
+
+  // Confirm dialog state
+  const [confirmState, setConfirmState] = useState({
+    isOpen: false,
+    title: "",
+    message: "",
+    confirmText: "Delete",
+    variant: "danger",
+    onConfirm: () => {}
+  });
 
   // Count per status for segmented tabs
   const statusCounts = useMemo(() => {
@@ -95,18 +106,33 @@ export function InvoiceTable({
   };
 
   const handleBulkDelete = () => {
-    if (window.confirm(`Delete ${selectedIds.size} selected invoices?`)) {
-      selectedIds.forEach((id) => deleteInvoice(id));
-      setSelectedIds(new Set());
-      onShowToast(`Deleted ${selectedIds.size} invoices`);
-    }
+    const count = selectedIds.size;
+    setConfirmState({
+      isOpen: true,
+      title: `Delete ${count} selected invoices?`,
+      message: `Are you sure you want to permanently delete all ${count} selected invoices from your ledger? This action cannot be undone.`,
+      confirmText: `Delete ${count} Invoices`,
+      variant: "danger",
+      onConfirm: () => {
+        selectedIds.forEach((id) => deleteInvoice(id));
+        setSelectedIds(new Set());
+        onShowToast(`Deleted ${count} invoices`, "delete");
+      }
+    });
   };
 
   const handleDelete = (id, invoiceNo) => {
-    if (window.confirm(`Delete invoice ${invoiceNo}?`)) {
-      deleteInvoice(id);
-      onShowToast(`Deleted invoice ${invoiceNo}`);
-    }
+    setConfirmState({
+      isOpen: true,
+      title: `Delete invoice ${invoiceNo}?`,
+      message: `Are you sure you want to delete invoice ${invoiceNo}? This will remove all remittance and ledger history for this record.`,
+      confirmText: "Delete Invoice",
+      variant: "danger",
+      onConfirm: () => {
+        deleteInvoice(id);
+        onShowToast(`Deleted invoice ${invoiceNo}`, "delete");
+      }
+    });
   };
 
   // Currency options for CustomSelect
@@ -508,6 +534,17 @@ export function InvoiceTable({
           </table>
         </div>
       </div>
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={confirmState.isOpen}
+        onClose={() => setConfirmState((p) => ({ ...p, isOpen: false }))}
+        onConfirm={confirmState.onConfirm}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmText={confirmState.confirmText}
+        variant={confirmState.variant}
+      />
     </div>
   );
 }

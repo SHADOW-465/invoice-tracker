@@ -2,6 +2,7 @@ import React, { useState, useMemo } from "react";
 import { X, Users, Plus, Building2, Trash2 } from "lucide-react";
 import { CURRENCIES, PAYMENT_TERMS } from "../types/finance";
 import { convertToBaseCurrency, formatCurrency, getClientColor } from "../utils/calculations";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 export function ClientsModal({
   isOpen,
@@ -75,10 +76,25 @@ export function ClientsModal({
     onShowToast(`Client "${created.name}" created!`);
   };
 
+  const [deleteConfirm, setDeleteConfirm] = useState({
+    isOpen: false,
+    id: null,
+    name: ""
+  });
+
   const handleDeleteClient = (id, name) => {
-    if (window.confirm(`Delete client "${name}" from directory?`)) {
-      setClients((prev) => prev.filter((c) => c.id !== id));
-      onShowToast(`Client "${name}" deleted`);
+    setDeleteConfirm({
+      isOpen: true,
+      id,
+      name
+    });
+  };
+
+  const handleConfirmDelete = () => {
+    if (deleteConfirm.id) {
+      setClients((prev) => prev.filter((c) => c.id !== deleteConfirm.id));
+      onShowToast(`Client "${deleteConfirm.name}" deleted from directory`, "delete");
+      setDeleteConfirm({ isOpen: false, id: null, name: "" });
     }
   };
 
@@ -292,6 +308,17 @@ export function ClientsModal({
           </button>
         </div>
       </div>
+
+      {/* Delete Client Confirmation */}
+      <ConfirmDialog
+        isOpen={deleteConfirm.isOpen}
+        onClose={() => setDeleteConfirm({ isOpen: false, id: null, name: "" })}
+        onConfirm={handleConfirmDelete}
+        title={`Delete client "${deleteConfirm.name}"?`}
+        message={`Are you sure you want to remove ${deleteConfirm.name} from your client directory? Existing invoices associated with this client will remain in your ledger.`}
+        confirmText="Delete Client"
+        variant="danger"
+      />
     </div>
   );
 }

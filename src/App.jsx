@@ -9,7 +9,7 @@ import { MarkPaidModal } from "./components/MarkPaidModal";
 import { InvoicePreviewModal } from "./components/InvoicePreviewModal";
 import { ClientsModal } from "./components/ClientsModal";
 import { SettingsModal } from "./components/SettingsModal";
-import { CheckCircle2, AlertCircle } from "lucide-react";
+import { CheckCircle2, AlertCircle, Trash2, Info, Check, Sparkles } from "lucide-react";
 
 export function App() {
   const store = useFinanceStore();
@@ -34,11 +34,15 @@ export function App() {
   const [toasts, setToasts] = useState([]);
 
   const showToast = (message, type = "success") => {
-    const id = Date.now();
+    const id = Date.now() + Math.random();
     setToasts((prev) => [...prev, { id, message, type }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 3500);
+    }, 3600);
+  };
+
+  const dismissToast = (id) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
   // Handlers
@@ -55,10 +59,10 @@ export function App() {
   const handleSaveInvoice = (invoiceData) => {
     if (editingInvoice) {
       store.updateInvoice(editingInvoice.id, invoiceData);
-      showToast(`Invoice ${invoiceData.invoiceNo} updated`);
+      showToast(`Updated Invoice #${invoiceData.invoiceNo}`);
     } else {
       store.addInvoice(invoiceData);
-      showToast(`Created invoice ${invoiceData.invoiceNo}`);
+      showToast(`Created Invoice #${invoiceData.invoiceNo} successfully!`);
     }
   };
 
@@ -118,7 +122,7 @@ export function App() {
         invoice={markingInvoice}
         onConfirm={(id, data) => {
           store.markInvoiceAsPaid(id, data);
-          showToast(`Invoice ${markingInvoice?.invoiceNo} marked as Paid!`);
+          showToast(`Invoice #${markingInvoice?.invoiceNo} settled & marked as Paid!`);
         }}
       />
 
@@ -147,16 +151,30 @@ export function App() {
 
       {/* Toast Notification Stack */}
       <div className="toast-container" aria-live="polite">
-        {toasts.map((t) => (
-          <div key={t.id} className="toast">
-            {t.type === "error" ? (
-              <AlertCircle size={15} color="var(--status-overdue-text)" />
-            ) : (
-              <CheckCircle2 size={15} color="var(--status-received-text)" />
-            )}
-            <span>{t.message}</span>
-          </div>
-        ))}
+        {toasts.map((t) => {
+          let icon = <CheckCircle2 size={16} className="toast-icon-success" />;
+          if (t.type === "error") {
+            icon = <AlertCircle size={16} className="toast-icon-error" />;
+          } else if (t.type === "delete") {
+            icon = <Trash2 size={16} className="toast-icon-delete" />;
+          } else if (t.type === "info") {
+            icon = <Info size={16} className="toast-icon-info" />;
+          } else if (t.type === "copy") {
+            icon = <Check size={16} className="toast-icon-copy" />;
+          }
+
+          return (
+            <div
+              key={t.id}
+              className="toast"
+              onClick={() => dismissToast(t.id)}
+              title="Click to dismiss"
+            >
+              {icon}
+              <span>{t.message}</span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
