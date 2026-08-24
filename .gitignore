@@ -23,4 +23,5 @@ graphify-out/
 gr/
 release/
 dist-desktop/
+*.jsc
 
