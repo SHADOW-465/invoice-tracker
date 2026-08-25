@@ -1,7 +1,18 @@
 // State Management & LocalStorage Persistence Hook
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { INITIAL_INVOICES, INITIAL_CLIENTS } from "../types/finance";
-import { getMonthName, calculateDueDate, calculateAging } from "../utils/calculations";
+import {
+  getMonthName,
+  calculateDueDate,
+  calculateAging,
+  getEffectiveStatus,
+  isReceivable,
+  getPeriod,
+  getAgingBucket,
+  hasTaxDeduction,
+  getAvailableYears,
+  getUsedCurrencies
+} from "../utils/calculations";
 
 const STORAGE_KEYS = {
   INVOICES: "apex_finance_invoices_v1",
@@ -21,7 +32,22 @@ const DEFAULT_SETTINGS = {
   invoicePrefix: "SnS",
   defaultPaymentTerms: "Net 30",
   defaultCurrency: "USD",
-  bankDetails: "HDFC Bank\nAccount: 5020-0012-3456-78\nIFSC: HDFC0001234\nBranch: Navalur, Chennai"
+  bankDetails: "HDFC Bank\nAccount: 5020-0012-3456-78\nIFSC: HDFC0001234\nBranch: Navalur, Chennai",
+  // Value of one unit of each currency expressed in USD. Editable in Settings -
+  // every base-currency total on the dashboard depends on these, so leaving them
+  // hard-coded meant the headline numbers could not be corrected.
+  exchangeRates: {
+    USD: 1.0,
+    EUR: 1.08,
+    GBP: 1.28,
+    CHF: 1.14,
+    INR: 0.012,
+    AED: 0.272,
+    SAR: 0.266,
+    CAD: 0.74,
+    AUD: 0.66,
+    SGD: 0.75
+  }
 };
 
 export function useFinanceStore() {
@@ -102,7 +128,15 @@ export function useFinanceStore() {
   const [settings, setSettings] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
-      return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS;
+      if (!saved) return DEFAULT_SETTINGS;
+      const parsed = JSON.parse(saved);
+      // Merge rates key-by-key so a settings blob saved before a currency existed
+      // does not drop that currency's rate to undefined.
+      return {
+        ...DEFAULT_SETTINGS,
+        ...parsed,
+        exchangeRates: { ...DEFAULT_SETTINGS.exchangeRates, ...(parsed.exchangeRates || {}) }
+      };
     } catch (e) {
       return DEFAULT_SETTINGS;
     }
@@ -131,23 +165,62 @@ export function useFinanceStore() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [currencyFilter, setCurrencyFilter] = useState("all");
   const [monthFilter, setMonthFilter] = useState("all");
+  const [yearFilter, setYearFilter] = useState("all");
   const [clientFilter, setClientFilter] = useState("all");
+  const [invoiceNoFilter, setInvoiceNoFilter] = useState("");
+  const [paymentModeFilter, setPaymentModeFilter] = useState("all");
+  const [agingFilter, setAgingFilter] = useState("all");
+  const [taxFilter, setTaxFilter] = useState("all");
+  const [settledFilter, setSettledFilter] = useState("all");
+  const [amountMin, setAmountMin] = useState("");
+  const [amountMax, setAmountMax] = useState("");
   const [sortField, setSortField] = useState("raisedOn");
   const [sortDirection, setSortDirection] = useState("desc");
 
-  // Persist workspaces to localStorage
+  const resetFilters = useCallback(() => {
+    setSearchQuery("");
+    setStatusFilter("all");
+    setCurrencyFilter("all");
+    setMonthFilter("all");
+    setYearFilter("all");
+    setClientFilter("all");
+    setInvoiceNoFilter("");
+    setPaymentModeFilter("all");
+    setAgingFilter("all");
+    setTaxFilter("all");
+    setSettledFilter("all");
+    setAmountMin("");
+    setAmountMax("");
+  }, []);
+
+  // Surfaced to the UI so a failed save is never silent.
+  const [storageError, setStorageError] = useState(null);
+
+  // Persist workspaces to localStorage.
+  //
+  // The legacy mirror of the active ledger used to be written here as well, which
+  // doubled storage for no benefit - at a few thousand invoices that is the
+  // difference between fitting in the ~5MB quota and silently failing to save.
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaces));
       localStorage.setItem(STORAGE_KEYS.ACTIVE_WORKSPACE, activeWorkspaceId);
-      // Keep legacy key in sync for backward compatibility
-      if (activeWorkspace) {
-        localStorage.setItem(STORAGE_KEYS.INVOICES, JSON.stringify(activeWorkspace.invoices || []));
+      // The legacy key is only read once, at first load, to migrate old data. Once
+      // workspaces exist it is dead weight, so drop it rather than mirroring into it.
+      if (localStorage.getItem(STORAGE_KEYS.INVOICES)) {
+        localStorage.removeItem(STORAGE_KEYS.INVOICES);
       }
+      setStorageError(null);
     } catch (e) {
       console.error("Failed to persist workspaces", e);
+      const quotaHit = e && (e.name === "QuotaExceededError" || e.code === 22);
+      setStorageError(
+        quotaHit
+          ? "Ledger too large to save in browser storage. Export to Excel now - recent changes are not saved."
+          : "Could not save changes to local storage. Export to Excel to avoid losing work."
+      );
     }
-  }, [workspaces, activeWorkspaceId, activeWorkspace]);
+  }, [workspaces, activeWorkspaceId]);
 
   useEffect(() => {
     try {
@@ -205,20 +278,16 @@ export function useFinanceStore() {
   }, []);
 
   const deleteWorkspace = useCallback((id) => {
+    // Resolve the next active ledger from the same update that removes the old one,
+    // rather than from a `workspaces` value captured when this callback was created.
     setWorkspaces(prev => {
-      if (prev.length <= 1) {
-        return [{ id: "default", name: "Master Ledger", invoices: [], createdAt: new Date().toISOString() }];
-      }
-      return prev.filter(w => w.id !== id);
+      const next = prev.length <= 1
+        ? [{ id: "default", name: "Master Ledger", invoices: [], createdAt: new Date().toISOString() }]
+        : prev.filter(w => w.id !== id);
+      setActiveWorkspaceId(prevId => (prevId === id ? (next[0]?.id || "default") : prevId));
+      return next;
     });
-    setActiveWorkspaceId(prevId => {
-      if (prevId === id) {
-        const remaining = workspaces.filter(w => w.id !== id);
-        return remaining[0]?.id || "default";
-      }
-      return prevId;
-    });
-  }, [workspaces]);
+  }, []);
 
   const renameWorkspace = useCallback((id, newName) => {
     setWorkspaces(prev => prev.map(w => w.id === id ? { ...w, name: newName.trim() || w.name } : w));
@@ -255,23 +324,25 @@ export function useFinanceStore() {
   // Helper to suggest next invoice number
   const getNextInvoiceNumber = useCallback(() => {
     const prefix = settings.invoicePrefix || "SnS";
-    let maxNum = 2534;
+    // Only numbers already in this prefix series count. The previous version seeded
+    // from a hard-coded 2534, so any ledger numbered below that jumped straight to
+    // SnS02535 and left a gap of thousands.
+    const series = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\d+)$`, "i");
+    let maxNum = 0;
+    let width = 5;
 
     invoices.forEach(inv => {
-      if (inv.invoiceNo) {
-        const match = inv.invoiceNo.match(/\d+/);
-        if (match) {
-          const num = parseInt(match[0], 10);
-          if (!isNaN(num) && num > maxNum) {
-            maxNum = num;
-          }
+      const match = series.exec(String(inv.invoiceNo || "").trim());
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) {
+          maxNum = num;
+          width = Math.max(width, match[1].length);
         }
       }
     });
 
-    const nextVal = maxNum + 1;
-    const padded = String(nextVal).padStart(5, "0");
-    return `${prefix}${padded}`;
+    return `${prefix}${String(maxNum + 1).padStart(width, "0")}`;
   }, [invoices, settings.invoicePrefix]);
 
   // Actions
@@ -397,9 +468,48 @@ export function useFinanceStore() {
     );
   }, [setInvoices]);
 
+  // Decorate once per ledger change. Status, aging and period were previously
+  // recomputed inside the filter predicate, so every keystroke in the search box
+  // re-derived them for every invoice in the ledger.
+  const decoratedInvoices = useMemo(() => {
+    return invoices.map(inv => {
+      const aging = calculateAging(inv);
+      const period = getPeriod(inv);
+      return {
+        ...inv,
+        _status: getEffectiveStatus(inv),
+        _aging: aging,
+        _bucket: getAgingBucket(inv),
+        _hasTax: hasTaxDeduction(inv),
+        _year: period.year,
+        _month: period.month,
+        _amount: Number(inv.amount || 0)
+      };
+    });
+  }, [invoices]);
+
+  const availableYears = useMemo(() => getAvailableYears(invoices), [invoices]);
+
+  const availableCurrencies = useMemo(() => getUsedCurrencies(invoices), [invoices]);
+
+  const availableClients = useMemo(() => {
+    const names = new Set();
+    invoices.forEach(i => { if (i.clientName) names.add(i.clientName); });
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [invoices]);
+
+  const availablePaymentModes = useMemo(() => {
+    const modes = new Set();
+    invoices.forEach(i => { if (i.paymentMode) modes.add(i.paymentMode); });
+    return Array.from(modes).sort((a, b) => a.localeCompare(b));
+  }, [invoices]);
+
   // Filtered & Sorted Invoices
   const filteredInvoices = useMemo(() => {
-    return invoices
+    const min = amountMin === "" ? null : Number(amountMin);
+    const max = amountMax === "" ? null : Number(amountMax);
+
+    return decoratedInvoices
       .filter(inv => {
         // Text Search
         if (searchQuery.trim()) {
@@ -413,20 +523,15 @@ export function useFinanceStore() {
           }
         }
 
-        // Status Filter
+        // Status filter, driven by the shared effective status so that Cancelled and
+        // Draft are reachable and never leak into Outstanding.
         if (statusFilter !== "all") {
-          const aging = calculateAging(inv);
-          if (statusFilter === "Overdue") {
-            if (!aging.isOverdue || inv.status === "Received") return false;
-          } else if (statusFilter === "Pending") {
-            if (inv.status !== "Pending" || aging.isOverdue) return false;
-          } else if (statusFilter === "Outstanding") {
-            if (inv.status === "Received") return false;
+          if (statusFilter === "Outstanding") {
+            if (!isReceivable(inv)) return false;
           } else if (statusFilter === "TaxDeducted") {
-            const hasTax = Number(inv.taxAmount || 0) > 0 || (inv.remarks && inv.remarks.toLowerCase().includes("tax"));
-            if (!hasTax) return false;
-          } else {
-            if (inv.status !== statusFilter) return false;
+            if (!inv._hasTax) return false;
+          } else if (inv._status !== statusFilter) {
+            return false;
           }
         }
 
@@ -435,22 +540,43 @@ export function useFinanceStore() {
           return false;
         }
 
-        // Month Filter
-        if (monthFilter !== "all") {
-          const m = inv.invoicedMonth || (inv.raisedOn ? getMonthName(inv.raisedOn) : "");
-          if (m !== monthFilter) return false;
-        }
+        // Month and year are independent, so "January" can mean one January rather
+        // than every January in the ledger.
+        if (monthFilter !== "all" && inv._month !== monthFilter) return false;
+        if (yearFilter !== "all" && String(inv._year) !== String(yearFilter)) return false;
 
         // Client Filter
-        if (clientFilter !== "all" && inv.clientName !== clientFilter) {
-          return false;
+        if (clientFilter !== "all" && inv.clientName !== clientFilter) return false;
+
+        // Invoice number column filter
+        if (invoiceNoFilter.trim()) {
+          const q = invoiceNoFilter.trim().toLowerCase();
+          if (!String(inv.invoiceNo || "").toLowerCase().includes(q)) return false;
         }
+
+        // Payment mode
+        if (paymentModeFilter !== "all" && (inv.paymentMode || "") !== paymentModeFilter) return false;
+
+        // Aging bucket
+        if (agingFilter !== "all" && inv._bucket !== agingFilter) return false;
+
+        // Tax / TDS
+        if (taxFilter === "with" && !inv._hasTax) return false;
+        if (taxFilter === "without" && inv._hasTax) return false;
+
+        // Settlement date presence
+        if (settledFilter === "settled" && !inv.receivedOn) return false;
+        if (settledFilter === "unsettled" && inv.receivedOn) return false;
+
+        // Amount range, compared on the invoice's own currency amount
+        if (min !== null && !isNaN(min) && inv._amount < min) return false;
+        if (max !== null && !isNaN(max) && inv._amount > max) return false;
 
         return true;
       })
       .sort((a, b) => {
-        let valA = a[sortField];
-        let valB = b[sortField];
+        let valA = sortField === "status" ? a._status : a[sortField];
+        let valB = sortField === "status" ? b._status : b[sortField];
 
         if (sortField === "amount") {
           valA = Number(valA || 0);
@@ -467,7 +593,11 @@ export function useFinanceStore() {
         if (valA > valB) return sortDirection === "asc" ? 1 : -1;
         return 0;
       });
-  }, [invoices, searchQuery, statusFilter, currencyFilter, monthFilter, clientFilter, sortField, sortDirection]);
+  }, [
+    decoratedInvoices, searchQuery, statusFilter, currencyFilter, monthFilter, yearFilter,
+    clientFilter, invoiceNoFilter, paymentModeFilter, agingFilter, taxFilter, settledFilter,
+    amountMin, amountMax, sortField, sortDirection
+  ]);
 
   return {
     invoices,
@@ -483,14 +613,36 @@ export function useFinanceStore() {
     statusFilter,
     currencyFilter,
     monthFilter,
+    yearFilter,
     clientFilter,
+    invoiceNoFilter,
+    paymentModeFilter,
+    agingFilter,
+    taxFilter,
+    settledFilter,
+    amountMin,
+    amountMax,
+    availableYears,
+    availableCurrencies,
+    availableClients,
+    availablePaymentModes,
+    storageError,
     sortField,
     sortDirection,
     setSearchQuery,
     setStatusFilter,
     setCurrencyFilter,
     setMonthFilter,
+    setYearFilter,
     setClientFilter,
+    setInvoiceNoFilter,
+    setPaymentModeFilter,
+    setAgingFilter,
+    setTaxFilter,
+    setSettledFilter,
+    setAmountMin,
+    setAmountMax,
+    resetFilters,
     setSortField,
     setSortDirection,
     setBaseCurrency,

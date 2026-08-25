@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
-import { ChevronDown, Check, Sparkles, AlertTriangle, Clock, CheckCircle2, FileText, Ban } from "lucide-react";
+import { ChevronDown, Check, Sparkles } from "lucide-react";
+import { getEffectiveStatus } from "../utils/calculations";
 
 export function InlineStatusDropdown({
   invoice,
@@ -66,6 +67,15 @@ export function InlineStatusDropdown({
         netReceived: 0
       });
       onShowToast(`Invoice #${invoice.invoiceNo} marked as Pending`);
+    } else if (newStatus === "Cancelled" || newStatus === "Draft") {
+      // Voiding must also clear any recorded receipt, or the cash stays counted as
+      // collected while the document reads Cancelled.
+      onUpdateStatus(invoice.id, {
+        status: newStatus,
+        receivedOn: "",
+        netReceived: 0
+      });
+      onShowToast(`Invoice #${invoice.invoiceNo} set to ${newStatus}`);
     } else {
       onUpdateStatus(invoice.id, {
         status: newStatus
@@ -74,21 +84,23 @@ export function InlineStatusDropdown({
     }
   };
 
-  const isReceived = invoice.status === "Received";
-  const isOverdue = invoice.status !== "Received" && invoice.dueDate && new Date(invoice.dueDate) < new Date();
-  
+  // Derived centrally, so a Cancelled invoice can never render as Overdue. This
+  // component used to run its own date comparison that ignored terminal statuses,
+  // which is why changing a past-due invoice to Cancelled appeared to do nothing.
+  const effectiveStatus = getEffectiveStatus(invoice);
+
   const statusClass =
-    isReceived
+    effectiveStatus === "Received"
       ? "status-received"
-      : isOverdue
+      : effectiveStatus === "Overdue"
       ? "status-overdue"
-      : invoice.status === "Pending"
+      : effectiveStatus === "Pending"
       ? "status-pending"
-      : invoice.status === "Cancelled"
-      ? "status-draft"
+      : effectiveStatus === "Cancelled"
+      ? "status-cancelled"
       : "status-draft";
 
-  const displayLabel = isOverdue && invoice.status !== "Received" ? "Overdue" : (invoice.status || "Pending");
+  const displayLabel = effectiveStatus;
 
   return (
     <div

@@ -107,6 +107,8 @@ export const CURRENCIES = [
   { code: "GBP", symbol: "£", name: "British Pound", rateToBase: 1.28 },
   { code: "CHF", symbol: "CHF ", name: "Swiss Franc", rateToBase: 1.14 },
   { code: "INR", symbol: "₹", name: "Indian Rupee", rateToBase: 0.012 },
+  { code: "AED", symbol: "AED ", name: "UAE Dirham", rateToBase: 0.272 },
+  { code: "SAR", symbol: "SAR ", name: "Saudi Riyal", rateToBase: 0.266 },
   { code: "CAD", symbol: "CA$", name: "Canadian Dollar", rateToBase: 0.74 },
   { code: "AUD", symbol: "AU$", name: "Australian Dollar", rateToBase: 0.66 },
   { code: "SGD", symbol: "SG$", name: "Singapore Dollar", rateToBase: 0.75 }
@@ -132,11 +134,15 @@ export const PAYMENT_TERMS = [
   { label: "Custom Due Date", days: null }
 ];
 
+// Selectable collection statuses.
+//
+// "Partially Paid" was removed: nothing in the app records how much was partially
+// paid, so choosing it changed no number and the invoice simply rendered as Pending
+// or Overdue. Re-add it only alongside a part-payment amount field.
 export const STATUS_TYPES = [
   { value: "Received", label: "Received", color: "var(--status-received)" },
   { value: "Pending", label: "Pending", color: "var(--status-pending)" },
   { value: "Overdue", label: "Overdue", color: "var(--status-overdue)" },
-  { value: "Partially Paid", label: "Partially Paid", color: "var(--status-partial)" },
   { value: "Draft", label: "Draft", color: "var(--status-draft)" },
   { value: "Cancelled", label: "Cancelled", color: "var(--status-cancelled)" }
 ];

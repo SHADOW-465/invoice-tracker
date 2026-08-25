@@ -1604,6 +1604,17 @@ button {
   border-color: var(--status-overdue-border);
 }
 
+/* Cancelled reads as voided: same muted family as Draft, struck through so a
+   written-off invoice is unmistakable at a glance in a dense ledger. */
+.status-pill.status-cancelled {
+  background: var(--status-draft-bg);
+  color: var(--status-draft-text);
+  border-color: var(--status-draft-border);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  opacity: 0.85;
+}
+
 .status-pill.status-draft {
   background: var(--status-draft-bg);
   color: var(--status-draft-text);
@@ -2135,4 +2146,233 @@ input[type="date"] {
   justify-content: center;
   gap: 0.5rem;
   color: var(--ink-muted);
+}
+
+
+/* ============================================================
+   PER-COLUMN FILTER ROW
+   Sits directly under the header so each control is visually
+   attached to the column it narrows.
+   ============================================================ */
+
+.column-filter-row th {
+  padding: 0.3rem 0.4rem;
+  background: var(--bg-surface-elevated);
+  border-bottom: 1px solid var(--border-strong);
+  vertical-align: middle;
+}
+
+.col-filter {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  padding: 0 0.35rem;
+  font-size: 0.7rem;
+  font-family: inherit;
+  color: var(--ink-primary);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: border-color 0.14s, box-shadow 0.14s;
+}
+
+.col-filter:hover {
+  border-color: var(--border-strong);
+}
+
+.col-filter:focus-visible {
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--brand-primary) 25%, transparent);
+}
+
+/* A filter that is actually doing something should be obvious at a glance. */
+.col-filter:not([value="all"]):not([value=""]) {
+  border-color: color-mix(in oklch, var(--brand-primary) 45%, var(--border-subtle));
+}
+
+select.col-filter {
+  cursor: pointer;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-muted) 50%),
+                    linear-gradient(135deg, var(--ink-muted) 50%, transparent 50%);
+  background-position: calc(100% - 11px) 11px, calc(100% - 7px) 11px;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+  padding-right: 1.1rem;
+}
+
+.col-filter-range {
+  display: flex;
+  gap: 3px;
+  min-width: 0;
+}
+
+.col-filter-range .col-filter {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* Number inputs lose their spinners here - the arrows are unusable at 26px and
+   steal horizontal room the value needs. */
+.col-filter[type="number"]::-webkit-outer-spin-button,
+.col-filter[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.col-filter[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* ============================================================
+   LEDGER PAGINATION
+   ============================================================ */
+
+.ledger-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+.ledger-pagination-info strong {
+  color: var(--ink-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ledger-pagination-size {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.ledger-pagination-size .col-filter {
+  width: auto;
+  min-width: 62px;
+}
+
+.ledger-pagination-page {
+  min-width: 92px;
+  text-align: center;
+  color: var(--ink-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+
+/* Persistent, unmissable warning that edits are not reaching storage. */
+.storage-alert {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1rem;
+  background: var(--status-overdue-bg);
+  color: var(--status-overdue-text);
+  border-bottom: 1px solid var(--status-overdue-border);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 200;
+}
+
+
+/* Exchange rate editor grid in Settings. */
+.rate-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.rate-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.5rem;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.rate-cell-code {
+  font-size: 0.68rem;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+.rate-cell-unit {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--ink-secondary);
+  min-width: 30px;
+}
+
+.rate-cell .form-input {
+  height: 26px;
+  padding: 0 0.35rem;
+  font-size: 0.72rem;
+  text-align: right;
+}
+
+.rate-cell .form-input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.form-hint {
+  margin: 0.15rem 0 0;
+  font-size: 0.68rem;
+  line-height: 1.45;
+  color: var(--ink-muted);
+}
+
+/* Month / year selects inside the date picker header. */
+.custom-datepicker-select {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-primary);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.14s, border-color 0.14s;
+}
+
+.custom-datepicker-select:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-subtle);
+}
+
+.custom-datepicker-select:focus-visible {
+  outline: none;
+  border-color: var(--brand-primary);
+}
+
+.custom-datepicker-select option {
+  background: var(--bg-surface);
+  color: var(--ink-primary);
+}
+
+
+/* A ledger currency with no configured rate converts 1:1 and silently distorts
+   every total - make it obvious in Settings. */
+.rate-cell-missing {
+  border-color: var(--status-overdue-border);
+  background: var(--status-overdue-bg);
 }

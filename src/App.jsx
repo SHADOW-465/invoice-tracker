@@ -2,14 +2,13 @@ import React, { useState } from "react";
 import { useFinanceStore } from "./hooks/useFinanceStore";
 import { Navbar } from "./components/Navbar";
 import { DashboardMetrics } from "./components/DashboardMetrics";
-import { AnalyticsCharts } from "./components/AnalyticsCharts";
 import { InvoiceTable } from "./components/InvoiceTable";
 import { InvoiceModal } from "./components/InvoiceModal";
 import { MarkPaidModal } from "./components/MarkPaidModal";
 import { InvoicePreviewModal } from "./components/InvoicePreviewModal";
 import { ClientsModal } from "./components/ClientsModal";
 import { SettingsModal } from "./components/SettingsModal";
-import { CheckCircle2, AlertCircle, Trash2, Info, Check, Sparkles } from "lucide-react";
+import { CheckCircle2, AlertCircle, Trash2, Info, Check } from "lucide-react";
 
 export function App() {
   const store = useFinanceStore();
@@ -78,6 +77,15 @@ export function App() {
 
   return (
     <div className="app-container">
+      {/* Storage failure is otherwise invisible: the UI keeps accepting edits that
+          were never written to disk. Say so loudly and keep saying it. */}
+      {store.storageError && (
+        <div className="storage-alert" role="alert">
+          <AlertCircle size={15} />
+          <span>{store.storageError}</span>
+        </div>
+      )}
+
       {/* Navigation Header */}
       <Navbar
         store={store}

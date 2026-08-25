@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
   FileText,
   CheckCircle2,
@@ -13,25 +13,37 @@ import {
   Percent,
   Timer
 } from "lucide-react";
-import { calculateFinancialMetrics, formatCurrency } from "../utils/calculations";
+import { calculateFinancialMetrics, formatCurrency, getEffectiveStatus, getChartYears, buildChartSeries } from "../utils/calculations";
 
 export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onShowToast }) {
   const metrics = useMemo(() => {
-    return calculateFinancialMetrics(store.invoices, store.baseCurrency);
-  }, [store.invoices, store.baseCurrency]);
+    return calculateFinancialMetrics(store.invoices, store.baseCurrency, store.settings?.exchangeRates);
+  }, [store.invoices, store.baseCurrency, store.settings?.exchangeRates]);
 
   const currencyEntries = useMemo(() => {
     return Object.entries(metrics.currencyBreakdown);
   }, [metrics.currencyBreakdown]);
 
+  // Year-aware, exactly like the standalone analytics chart. Without this the
+  // strip would try to paint one column per month across the whole ledger.
+  const [chartYear, setChartYear] = useState("latest");
+
+  const chartYears = useMemo(() => getChartYears(metrics.monthlyData), [metrics.monthlyData]);
+  const activeYear = chartYear === "latest" ? (chartYears[0] ?? null) : chartYear;
+
+  const chartSeries = useMemo(
+    () => buildChartSeries(metrics.monthlyData, activeYear),
+    [metrics.monthlyData, activeYear]
+  );
+
   const maxMonthlyVal = useMemo(() => {
-    if (metrics.monthlyData.length === 0) return 1000;
+    if (chartSeries.length === 0) return 1000;
     const maxVal = Math.max(
-      ...metrics.monthlyData.map((d) => Math.max(d.invoiced, d.received)),
+      ...chartSeries.map((c) => Math.max(c.invoiced, c.received)),
       100
     );
     return maxVal * 1.15;
-  }, [metrics.monthlyData]);
+  }, [chartSeries]);
 
   const totalGross = metrics.totalInvoicedBase || 1;
   const realizedPct = ((metrics.totalReceivedBase / totalGross) * 100).toFixed(1);
@@ -41,12 +53,12 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
 
   const hasOverdue = metrics.totalOverdueBase > 0;
   const hasPending = metrics.totalPendingBase > 0;
-  const settledCount = store.invoices.filter((i) => i.status === "Received").length;
-  const overdueCount = store.invoices.filter((i) => {
-    if (i.status === "Received") return false;
-    const due = i.dueDate ? new Date(i.dueDate) : null;
-    return due && due < new Date();
-  }).length;
+  // Both derived from the shared helper. These previously used a local date test
+  // that counted cancelled and draft invoices, so the KPI card and the ledger tab
+  // badge reported different overdue totals.
+  const countedInvoices = store.invoices.length - (metrics.voidedCount || 0);
+  const settledCount = store.invoices.filter((i) => getEffectiveStatus(i) === "Received").length;
+  const overdueCount = store.invoices.filter((i) => getEffectiveStatus(i) === "Overdue").length;
 
   const currentFilter = store.statusFilter;
 
@@ -109,7 +121,10 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
             {formatCurrency(metrics.totalInvoicedBase, store.baseCurrency)}
           </div>
           <div className="kpi-subtext">
-            <span>{store.invoices.length} total invoices raised</span>
+            <span>
+              {countedInvoices} invoices raised
+              {metrics.voidedCount > 0 && ` · ${metrics.voidedCount} voided excluded`}
+            </span>
           </div>
           {currentFilter === "all" && (
             <div className="kpi-filter-indicator">● Active filter</div>
@@ -133,7 +148,7 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
             {formatCurrency(metrics.totalReceivedBase, store.baseCurrency)}
           </div>
           <div className="kpi-subtext">
-            <span>{settledCount} of {store.invoices.length} invoices settled</span>
+            <span>{settledCount} of {countedInvoices} invoices settled</span>
           </div>
           {currentFilter === "Received" && (
             <div className="kpi-filter-indicator">● Active filter</div>
@@ -300,8 +315,22 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
           {/* Chart Card */}
           <div className="analytics-card">
             <div className="analytics-card-header">
-              <span className="analytics-card-title">Monthly Velocity: Invoiced vs Collected</span>
+              <span className="analytics-card-title">
+                {activeYear === "all" ? "Yearly" : "Monthly"} Velocity: Invoiced vs Collected
+              </span>
               <div className="analytics-legend">
+                {chartYears.length > 0 && (
+                  <select
+                    className="col-filter"
+                    style={{ width: "auto", minWidth: 92 }}
+                    value={activeYear === "all" ? "all" : String(activeYear)}
+                    onChange={(e) => setChartYear(e.target.value === "all" ? "all" : Number(e.target.value))}
+                    aria-label="Chart period"
+                  >
+                    <option value="all">All years</option>
+                    {chartYears.map((y) => <option key={y} value={String(y)}>{y}</option>)}
+                  </select>
+                )}
                 <span className="analytics-legend-item">
                   <span className="analytics-dot" style={{ background: "var(--chart-bar-invoiced)" }} />
                   Invoiced
@@ -313,11 +342,11 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
               </div>
             </div>
 
-            {metrics.monthlyData.length === 0 ? (
+            {chartSeries.length === 0 ? (
               <div className="analytics-empty">No invoice activity recorded</div>
             ) : (
               <div className="analytics-chart-container">
-                {metrics.monthlyData.map((item, idx) => {
+                {chartSeries.map((item, idx) => {
                   const invoicedHeight = Math.max(6, (item.invoiced / maxMonthlyVal) * 110);
                   const receivedHeight = Math.max(6, (item.received / maxMonthlyVal) * 110);
 
@@ -330,7 +359,7 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
                             height: `${invoicedHeight}px`,
                             backgroundColor: "var(--chart-bar-invoiced)"
                           }}
-                          title={`Invoiced: ${formatCurrency(item.invoiced, store.baseCurrency)}`}
+                          title={`${item.label} - Invoiced: ${formatCurrency(item.invoiced, store.baseCurrency)} across ${item.count} invoices`}
                         />
                         <div
                           className="analytics-bar"
@@ -338,10 +367,10 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
                             height: `${receivedHeight}px`,
                             backgroundColor: "var(--chart-bar-collected)"
                           }}
-                          title={`Collected: ${formatCurrency(item.received, store.baseCurrency)}`}
+                          title={`${item.label} - Collected: ${formatCurrency(item.received, store.baseCurrency)}`}
                         />
                       </div>
-                      <span className="analytics-chart-label">{item.month.slice(0, 3)}</span>
+                      <span className="analytics-chart-label">{item.label}</span>
                     </div>
                   );
                 })}

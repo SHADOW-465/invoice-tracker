@@ -65,6 +65,40 @@ export function calculateDueDate(raisedOnStr, termDays = 30) {
 }
 
 /**
+ * Statuses that take an invoice out of the receivables cycle entirely.
+ * A cancelled or draft invoice can never be "overdue" - there is nothing to collect.
+ */
+export const TERMINAL_STATUSES = ["Cancelled", "Draft"];
+export const isTerminalStatus = (status) => TERMINAL_STATUSES.includes(status);
+
+/**
+ * THE single source of truth for what an invoice's status actually is right now.
+ *
+ * Every screen must call this instead of comparing dates itself. Three separate
+ * inline implementations of "is it overdue" previously disagreed with each other,
+ * which is why a cancelled invoice still displayed as Overdue and why the dashboard
+ * overdue count did not match the ledger tab badge.
+ *
+ * Precedence: Received > Cancelled/Draft > explicit Overdue > date-derived.
+ */
+export function getEffectiveStatus(invoice) {
+  const raw = invoice?.status || "Pending";
+  if (raw === "Received") return "Received";
+  // Terminal statuses are the user's explicit decision and never age.
+  if (isTerminalStatus(raw)) return raw;
+  // An explicit Overdue flag is respected even before the due date, otherwise an
+  // invoice the user flagged by hand would vanish from every tab.
+  if (raw === "Overdue") return "Overdue";
+  return calculateAging(invoice).isOverdue ? "Overdue" : "Pending";
+}
+
+/** True when the invoice still represents money we expect to collect. */
+export function isReceivable(invoice) {
+  const eff = getEffectiveStatus(invoice);
+  return eff === "Pending" || eff === "Overdue";
+}
+
+/**
  * Calculate aging days and overdue status
  * Returns { daysOutstanding, daysToCollect, isOverdue, overdueDays, effectiveStatus }
  */
@@ -102,6 +136,11 @@ export function calculateAging(invoice) {
       const overdueMs = today.getTime() - dueDate.getTime();
       overdueDays = Math.max(1, Math.round(overdueMs / (1000 * 60 * 60 * 24)));
       effectiveStatus = "Overdue";
+    } else if (invoice.status === "Overdue") {
+      // Flagged overdue by hand before the due date - respect it, but report 0 days
+      // past due rather than inventing a number.
+      isOverdue = true;
+      effectiveStatus = "Overdue";
     }
   }
 
@@ -134,8 +173,22 @@ export function convertToBaseCurrency(amount, currencyCode, baseCurrencyCode = "
     ...rates
   };
 
-  const fromRateInUSD = defaultRates[currencyCode] || 1.0;
-  const toRateInUSD = defaultRates[baseCurrencyCode] || 1.0;
+  // An unknown currency previously fell back to 1.0, silently treating e.g. one
+  // dirham as one dollar and overstating that invoice by nearly 4x. Warn loudly in
+  // development so a missing rate is fixed rather than quietly mispriced.
+  if (defaultRates[currencyCode] === undefined && typeof console !== "undefined") {
+    if (!convertToBaseCurrency._warned) convertToBaseCurrency._warned = new Set();
+    if (!convertToBaseCurrency._warned.has(currencyCode)) {
+      convertToBaseCurrency._warned.add(currencyCode);
+      console.warn(
+        `[FinanceOS] No exchange rate configured for "${currencyCode}". ` +
+        `Treating it as 1:1 with USD. Set a rate in Settings to correct every total.`
+      );
+    }
+  }
+
+  const fromRateInUSD = defaultRates[currencyCode] ?? 1.0;
+  const toRateInUSD = defaultRates[baseCurrencyCode] ?? 1.0;
 
   // Convert to USD first, then to target base currency
   const inUSD = num * fromRateInUSD;
@@ -168,6 +221,8 @@ export function calculateFinancialMetrics(invoices, baseCurrency = "USD", rates 
   let totalPendingBase = 0;
   let totalOverdueBase = 0;
   let totalTaxWithheldBase = 0;
+  let totalVoidedBase = 0;
+  let voidedCount = 0;
 
   const currencyBreakdown = {};
   const monthlyData = {};
@@ -188,6 +243,14 @@ export function calculateFinancialMetrics(invoices, baseCurrency = "USD", rates 
     const baseAmt = convertToBaseCurrency(rawAmt, curr, baseCurrency, rates);
     const aging = calculateAging(inv);
 
+    // A cancelled or draft invoice is not revenue. Counting it as "invoiced" inflated
+    // the denominator and quietly depressed the collection rate.
+    if (isTerminalStatus(inv.status)) {
+      totalVoidedBase += baseAmt;
+      voidedCount += 1;
+      return;
+    }
+
     // Currency stats
     if (!currencyBreakdown[curr]) {
       currencyBreakdown[curr] = { total: 0, received: 0, pending: 0, count: 0 };
@@ -195,13 +258,23 @@ export function calculateFinancialMetrics(invoices, baseCurrency = "USD", rates 
     currencyBreakdown[curr].total += rawAmt;
     currencyBreakdown[curr].count += 1;
 
-    // Month trend
-    const month = inv.invoicedMonth || (inv.raisedOn ? getMonthName(inv.raisedOn) : "Unknown");
-    if (!monthlyData[month]) {
-      monthlyData[month] = { month, invoiced: 0, received: 0, count: 0 };
+    // Month trend, keyed by YYYY-MM so that January 2017 and January 2026 stay
+    // separate buckets instead of being summed into one meaningless bar.
+    const period = getPeriod(inv);
+    if (!monthlyData[period.key]) {
+      monthlyData[period.key] = {
+        key: period.key,
+        month: period.month,
+        monthIndex: period.monthIndex,
+        year: period.year,
+        label: period.label,
+        invoiced: 0,
+        received: 0,
+        count: 0
+      };
     }
-    monthlyData[month].invoiced += baseAmt;
-    monthlyData[month].count += 1;
+    monthlyData[period.key].invoiced += baseAmt;
+    monthlyData[period.key].count += 1;
 
     totalInvoicedBase += baseAmt;
 
@@ -211,13 +284,13 @@ export function calculateFinancialMetrics(invoices, baseCurrency = "USD", rates 
       totalReceivedBase += netBase;
       totalTaxWithheldBase += taxBase;
       currencyBreakdown[curr].received += rawAmt;
-      monthlyData[month].received += netBase;
+      monthlyData[period.key].received += netBase;
 
       if (aging.daysToCollect !== null) {
         totalCollectionDays += aging.daysToCollect;
         receivedCount += 1;
       }
-    } else if (inv.status !== "Cancelled" && inv.status !== "Draft") {
+    } else if (isReceivable(inv)) {
       currencyBreakdown[curr].pending += rawAmt;
 
       if (aging.isOverdue) {
@@ -242,10 +315,12 @@ export function calculateFinancialMetrics(invoices, baseCurrency = "USD", rates 
     totalPendingBase,
     totalOverdueBase,
     totalTaxWithheldBase,
+    totalVoidedBase,
+    voidedCount,
     avgDaysToCollect,
     collectionRate,
     currencyBreakdown,
-    monthlyData: Object.values(monthlyData),
+    monthlyData: Object.values(monthlyData).sort((a, b) => a.key.localeCompare(b.key)),
     agingBuckets
   };
 }
@@ -284,3 +359,117 @@ export function getClientColor(clientName = "") {
   return palette[index];
 }
 
+
+
+/**
+ * Resolve the accounting period an invoice belongs to, from its raised date.
+ *
+ * Everything year-aware in the app funnels through this, so the ledger filter, the
+ * analytics chart and any export all agree on which month an invoice lands in.
+ */
+export function getPeriod(invoice) {
+  const iso = invoice?.raisedOn || "";
+  const match = /^(\d{4})-(\d{2})/.exec(iso);
+
+  if (match) {
+    const year = Number(match[1]);
+    const monthIndex = Number(match[2]) - 1;
+    const month = MONTH_NAMES[monthIndex] || "Unknown";
+    return { key: `${match[1]}-${match[2]}`, year, monthIndex, month, label: `${month.slice(0, 3)} ${year}` };
+  }
+
+  // Fall back to a parseable date, then to the stored month name with no year.
+  const d = iso ? new Date(iso) : null;
+  if (d && !isNaN(d.getTime())) {
+    const year = d.getFullYear();
+    const monthIndex = d.getMonth();
+    const month = MONTH_NAMES[monthIndex];
+    const key = `${year}-${String(monthIndex + 1).padStart(2, "0")}`;
+    return { key, year, monthIndex, month, label: `${month.slice(0, 3)} ${year}` };
+  }
+
+  const month = invoice?.invoicedMonth || "Unknown";
+  return { key: `0000-${String(MONTH_NAMES.indexOf(month) + 1).padStart(2, "0")}`, year: null, monthIndex: MONTH_NAMES.indexOf(month), month, label: month };
+}
+
+/** Every year present in the ledger, newest first. */
+export function getAvailableYears(invoices = []) {
+  const years = new Set();
+  invoices.forEach((inv) => {
+    const { year } = getPeriod(inv);
+    if (year) years.add(year);
+  });
+  return Array.from(years).sort((a, b) => b - a);
+}
+
+/** Aging bucket label for a single invoice - shared by the table filter and reports. */
+export function getAgingBucket(invoice) {
+  if (getEffectiveStatus(invoice) === "Received") return "settled";
+  const { isOverdue, overdueDays } = calculateAging(invoice);
+  if (!isOverdue) return "current";
+  if (overdueDays <= 30) return "1-30";
+  if (overdueDays <= 60) return "31-60";
+  if (overdueDays <= 90) return "61-90";
+  return "90+";
+}
+
+/** True when the invoice carries a withholding / TDS deduction. */
+export function hasTaxDeduction(invoice) {
+  if (Number(invoice?.taxAmount || 0) > 0) return true;
+  if (Number(invoice?.taxRate || 0) > 0) return true;
+  return /\btds\b|tax|withh/i.test(String(invoice?.remarks || ""));
+}
+
+
+/** Years present in a monthlyData series, newest first. */
+export function getChartYears(monthlyData = []) {
+  const years = new Set();
+  monthlyData.forEach((d) => { if (d.year) years.add(d.year); });
+  return Array.from(years).sort((a, b) => b - a);
+}
+
+/**
+ * Turn year-keyed monthly buckets into a readable bar series.
+ *
+ * Passing "all" rolls the whole ledger up to one bar per year - the only legible
+ * way to look at a decade of invoices. Passing a year returns all twelve months of
+ * it, so a month with no billing reads as a gap rather than silently disappearing.
+ */
+export function buildChartSeries(monthlyData = [], activeYear) {
+  if (activeYear === "all") {
+    const byYear = new Map();
+    monthlyData.forEach((d) => {
+      if (!d.year) return;
+      const row = byYear.get(d.year) || { label: String(d.year), invoiced: 0, received: 0, count: 0 };
+      row.invoiced += d.invoiced;
+      row.received += d.received;
+      row.count += d.count;
+      byYear.set(d.year, row);
+    });
+    return Array.from(byYear.entries()).sort((a, b) => a[0] - b[0]).map(([, row]) => row);
+  }
+
+  if (activeYear === null || activeYear === undefined) return [];
+
+  const yearRows = monthlyData.filter((d) => d.year === activeYear);
+  return MONTH_NAMES.map((name, idx) => {
+    const found = yearRows.find((d) => d.monthIndex === idx);
+    return {
+      label: name.slice(0, 3),
+      invoiced: found ? found.invoiced : 0,
+      received: found ? found.received : 0,
+      count: found ? found.count : 0
+    };
+  });
+}
+
+
+/** Currency codes actually present in a ledger, sorted. */
+export function getUsedCurrencies(invoices = []) {
+  const codes = new Set();
+  invoices.forEach((i) => {
+    const c = String(i?.currency || "").trim().toUpperCase();
+    if (c) codes.add(c);
+  });
+  return Array.from(codes).sort();
+}

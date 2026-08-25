@@ -27,6 +27,32 @@ export function SettingsModal({
     }
   }, [isOpen, settings]);
 
+  // Any currency in the ledger needs a rate field, even one absent from the built-in
+  // table - otherwise it converts at 1:1 with no way to correct it.
+  const rateCodes = Array.from(new Set([
+    ...CURRENCIES.map((c) => c.code),
+    ...(store?.availableCurrencies || [])
+  ])).sort();
+
+  // Stored internally as "value of one unit in USD" (INR -> 0.012), but nobody
+  // quotes rates that way, so the field takes the familiar "83.33 INR per USD".
+  const rateToPerUsd = (rateInUsd) => {
+    const n = Number(rateInUsd);
+    if (!n || !isFinite(n) || n <= 0) return "";
+    return Number((1 / n).toFixed(4));
+  };
+
+  const handleRateChange = (code, perUsdRaw) => {
+    const perUsd = Number(perUsdRaw);
+    setForm((p) => ({
+      ...p,
+      exchangeRates: {
+        ...(p.exchangeRates || {}),
+        [code]: perUsd > 0 && isFinite(perUsd) ? 1 / perUsd : 0
+      }
+    }));
+  };
+
   if (!isOpen) return null;
 
   const handleSubmit = (e) => {
@@ -131,6 +157,40 @@ export function SettingsModal({
                       </option>
                     ))}
                   </select>
+                </div>
+
+                {/* Exchange Rates - every base-currency total on the dashboard is
+                    computed from these, so they must be the user's to correct. */}
+                <div className="form-group col-span-2">
+                  <label className="form-label">Exchange Rates</label>
+                  <p className="form-hint">
+                    How many units of each currency equal <strong>1 USD</strong>. Used for every
+                    converted total. Rates apply to the whole ledger, so changing one restates
+                    historical figures.
+                  </p>
+                  <div className="rate-grid">
+                    {rateCodes.map((code) => {
+                      const perUsd = rateToPerUsd(form.exchangeRates?.[code]);
+                      const missing = !form.exchangeRates?.[code];
+                      return (
+                        <div key={code} className={`rate-cell ${missing ? "rate-cell-missing" : ""}`}>
+                          <span className="rate-cell-code">1 USD =</span>
+                          <input
+                            type="number"
+                            step="0.0001"
+                            min="0"
+                            className="form-input mono-num"
+                            value={perUsd}
+                            disabled={code === "USD"}
+                            placeholder="not set"
+                            onChange={(e) => handleRateChange(code, e.target.value)}
+                            aria-label={`Units of ${code} per US dollar`}
+                          />
+                          <span className="rate-cell-unit">{code}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Default Payment Terms */}

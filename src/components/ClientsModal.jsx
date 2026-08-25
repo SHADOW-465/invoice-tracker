@@ -10,7 +10,8 @@ export function ClientsModal({
   store,
   onShowToast
 }) {
-  const { clients = [], setClients, invoices = [], baseCurrency = "USD" } = store || {};
+  const { clients = [], setClients, invoices = [], baseCurrency = "USD", settings } = store || {};
+  const rates = settings?.exchangeRates;
   const [isAdding, setIsAdding] = useState(false);
   const [newClient, setNewClient] = useState({
     name: "",
@@ -41,20 +42,20 @@ export function ClientsModal({
           currencies: new Set()
         };
       }
-      const baseAmt = convertToBaseCurrency(Number(inv.amount || 0), inv.currency || "USD", baseCurrency);
+      const baseAmt = convertToBaseCurrency(Number(inv.amount || 0), inv.currency || "USD", baseCurrency, rates);
       map[name].totalBilledBase += baseAmt;
       map[name].invoiceCount += 1;
       map[name].currencies.add(inv.currency || "USD");
 
       if (inv.status === "Received") {
-        const netBase = convertToBaseCurrency(Number(inv.netReceived || inv.amount || 0), inv.currency || "USD", baseCurrency);
+        const netBase = convertToBaseCurrency(Number(inv.netReceived || inv.amount || 0), inv.currency || "USD", baseCurrency, rates);
         map[name].totalCollectedBase += netBase;
       } else if (inv.status !== "Cancelled" && inv.status !== "Draft") {
         map[name].pendingBase += baseAmt;
       }
     });
     return map;
-  }, [invoices, baseCurrency]);
+  }, [invoices, baseCurrency, rates]);
 
   // Combine explicit clients with any discovered from invoices
   const allDisplayClients = useMemo(() => {

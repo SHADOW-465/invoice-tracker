@@ -1,24 +1,33 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { BarChart3, PieChart } from "lucide-react";
-import { calculateFinancialMetrics, formatCurrency } from "../utils/calculations";
+import { calculateFinancialMetrics, formatCurrency, getChartYears, buildChartSeries } from "../utils/calculations";
 
 export function AnalyticsCharts({ store }) {
   const metrics = useMemo(() => {
-    return calculateFinancialMetrics(store.invoices, store.baseCurrency);
-  }, [store.invoices, store.baseCurrency]);
+    return calculateFinancialMetrics(store.invoices, store.baseCurrency, store.settings?.exchangeRates);
+  }, [store.invoices, store.baseCurrency, store.settings?.exchangeRates]);
 
-  const currencyEntries = useMemo(() => {
-    return Object.entries(metrics.currencyBreakdown);
-  }, [metrics.currencyBreakdown]);
+  // Which year the monthly chart is showing. "all" rolls the ledger up to one bar
+  // per year, which is the only readable way to view a decade of invoices.
+  const [chartYear, setChartYear] = useState("latest");
+
+  const chartYears = useMemo(() => getChartYears(metrics.monthlyData), [metrics.monthlyData]);
+
+  const activeYear = chartYear === "latest" ? (chartYears[0] ?? null) : chartYear;
+
+  const chartSeries = useMemo(
+    () => buildChartSeries(metrics.monthlyData, activeYear),
+    [metrics.monthlyData, activeYear]
+  );
 
   const maxMonthlyVal = useMemo(() => {
-    if (metrics.monthlyData.length === 0) return 1000;
+    if (chartSeries.length === 0) return 1000;
     const maxVal = Math.max(
-      ...metrics.monthlyData.map((d) => Math.max(d.invoiced, d.received)),
+      ...chartSeries.map((d) => Math.max(d.invoiced, d.received)),
       100
     );
     return maxVal * 1.15;
-  }, [metrics.monthlyData]);
+  }, [chartSeries]);
 
   return (
     <section className="analytics-section" aria-label="Financial Visualizations">
@@ -27,9 +36,23 @@ export function AnalyticsCharts({ store }) {
         <div className="analytics-card-header">
           <h3 className="analytics-card-title">
             <BarChart3 size={15} color="var(--brand-primary)" />
-            <span>Monthly Invoiced vs Collected ({store.baseCurrency})</span>
+            <span>
+              {activeYear === "all" ? "Yearly" : "Monthly"} Invoiced vs Collected ({store.baseCurrency})
+            </span>
           </h3>
-          <div style={{ display: "flex", gap: "0.85rem", fontSize: "0.7rem", color: "var(--ink-muted)" }}>
+          <div style={{ display: "flex", gap: "0.85rem", alignItems: "center", fontSize: "0.7rem", color: "var(--ink-muted)" }}>
+            {chartYears.length > 0 && (
+              <select
+                className="col-filter"
+                style={{ width: "auto", minWidth: 96 }}
+                value={activeYear === "all" ? "all" : String(activeYear)}
+                onChange={(e) => setChartYear(e.target.value === "all" ? "all" : Number(e.target.value))}
+                aria-label="Chart period"
+              >
+                <option value="all">All years</option>
+                {chartYears.map((y) => <option key={y} value={String(y)}>{y}</option>)}
+              </select>
+            )}
             <span style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
               <span style={{ width: 8, height: 8, borderRadius: 2, background: "var(--chart-bar-invoiced)" }}></span>
               Invoiced
@@ -41,13 +64,13 @@ export function AnalyticsCharts({ store }) {
           </div>
         </div>
 
-        {metrics.monthlyData.length === 0 ? (
+        {chartSeries.length === 0 ? (
           <div style={{ padding: "1.5rem", textAlign: "center", color: "var(--ink-muted)", fontSize: "var(--text-xs)" }}>
             No invoice data available
           </div>
         ) : (
-          <div style={{ height: "150px", display: "flex", alignItems: "flex-end", gap: "1.25rem", padding: "0.5rem 0" }}>
-            {metrics.monthlyData.map((item, idx) => {
+          <div style={{ height: "150px", display: "flex", alignItems: "flex-end", gap: chartSeries.length > 12 ? "0.35rem" : "1.25rem", padding: "0.5rem 0" }}>
+            {chartSeries.map((item, idx) => {
               const invoicedHeight = Math.max(6, (item.invoiced / maxMonthlyVal) * 120);
               const receivedHeight = Math.max(6, (item.received / maxMonthlyVal) * 120);
 
@@ -66,7 +89,7 @@ export function AnalyticsCharts({ store }) {
                 >
                   <div style={{ display: "flex", gap: "4px", alignItems: "flex-end", height: "120px" }}>
                     <div
-                      title={`Invoiced: ${formatCurrency(item.invoiced, store.baseCurrency)}`}
+                      title={`${item.label} - Invoiced: ${formatCurrency(item.invoiced, store.baseCurrency)} across ${item.count} invoices`}
                       style={{
                         width: "18px",
                         height: `${invoicedHeight}px`,
@@ -76,7 +99,7 @@ export function AnalyticsCharts({ store }) {
                       }}
                     />
                     <div
-                      title={`Collected: ${formatCurrency(item.received, store.baseCurrency)}`}
+                      title={`${item.label} - Collected: ${formatCurrency(item.received, store.baseCurrency)}`}
                       style={{
                         width: "18px",
                         height: `${receivedHeight}px`,
@@ -86,8 +109,8 @@ export function AnalyticsCharts({ store }) {
                       }}
                     />
                   </div>
-                  <span style={{ fontSize: "0.7rem", fontWeight: 600, color: "var(--ink-secondary)" }}>
-                    {item.month.slice(0, 3)}
+                  <span style={{ fontSize: "0.7rem", fontWeight: 600, color: "var(--ink-secondary)", whiteSpace: "nowrap" }}>
+                    {item.label}
                   </span>
                 </div>
               );

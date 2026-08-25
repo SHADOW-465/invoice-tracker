@@ -75,6 +75,18 @@ export function CustomDatePicker({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isOpen]);
 
+  // Span a generous window around both today and whatever is already selected, so
+  // an invoice dated 2017 can be reached in one click.
+  const yearChoices = React.useMemo(() => {
+    const now = new Date().getFullYear();
+    const anchor = Number.isFinite(viewYear) ? viewYear : now;
+    const from = Math.min(now - 15, anchor - 5);
+    const to = Math.max(now + 5, anchor + 5);
+    const list = [];
+    for (let y = to; y >= from; y--) list.push(y);
+    return list;
+  }, [viewYear]);
+
   const handlePrevMonth = (e) => {
     e.stopPropagation();
     if (viewMonth === 0) {
@@ -239,13 +251,32 @@ export function CustomDatePicker({
               <ChevronLeft size={15} />
             </button>
 
+            {/* Month and year are selectable. Stepping a month at a time is fine
+                for this quarter and unusable for a ledger that starts in 2017 -
+                reaching it needed over a hundred clicks. */}
             <div className="custom-datepicker-title">
-              <span className="custom-datepicker-month-name">
-                {MONTH_NAMES[viewMonth]}
-              </span>
-              <span className="custom-datepicker-year mono-num">
-                {viewYear}
-              </span>
+              <select
+                className="custom-datepicker-select"
+                value={viewMonth}
+                onChange={(e) => setViewMonth(Number(e.target.value))}
+                onClick={(e) => e.stopPropagation()}
+                aria-label="Month"
+              >
+                {MONTH_NAMES.map((m, i) => (
+                  <option key={m} value={i}>{m}</option>
+                ))}
+              </select>
+              <select
+                className="custom-datepicker-select mono-num"
+                value={viewYear}
+                onChange={(e) => setViewYear(Number(e.target.value))}
+                onClick={(e) => e.stopPropagation()}
+                aria-label="Year"
+              >
+                {yearChoices.map((y) => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
             </div>
 
             <button

@@ -1,6 +1,6 @@
 // Excel & CSV Import/Export Handler using SheetJS
 import * as XLSX from "xlsx";
-import { toISODate, getMonthName, calculateAging } from "./calculations";
+import { toISODate, getMonthName, calculateAging, getEffectiveStatus } from "./calculations";
 
 const cleanKey = (k) => String(k || "").replace(/\s+/g, " ").trim().toLowerCase();
 
@@ -15,6 +15,21 @@ const pickVal = (row, ...keys) => {
   }
   return "";
 };
+
+/**
+ * Map whatever a spreadsheet calls a status onto the vocabulary this app uses.
+ * A received date always wins - if cash landed, the invoice is settled regardless
+ * of what the status column says.
+ */
+function normaliseStatus(rawStatus, receivedOn) {
+  const v = String(rawStatus || "").trim().toLowerCase();
+  if (receivedOn) return "Received";
+  if (/^(received|paid|settled|complete[d]?|closed)$/.test(v)) return "Received";
+  if (/^(cancel|cancelled|canceled|void|voided|written off|write[- ]off)$/.test(v)) return "Cancelled";
+  if (/^(draft|unissued|proforma|pro[- ]forma)$/.test(v)) return "Draft";
+  if (/^(overdue|late|past due)$/.test(v)) return "Overdue";
+  return "Pending";
+}
 
 export function exportToExcel(invoices, filename = "Invoice_Tracker_Export.xlsx") {
   const rows = (invoices || []).map((inv) => {
@@ -32,14 +47,23 @@ export function exportToExcel(invoices, filename = "Invoice_Tracker_Export.xlsx"
       "Collection Status": inv.status || "Pending",
       "Received on": inv.receivedOn || "",
       "Due by (days)": dueByDaysVal,
-      "Remarks": inv.remarks || ""
+      "Remarks": inv.remarks || "",
+      // Appended columns - recoverable on re-import.
+      "Due Date": inv.dueDate || "",
+      "Payment Terms": inv.paymentTerms || "Net 30",
+      "Tax %": Number(inv.taxRate || 0),
+      "Tax Amount": Number(inv.taxAmount || 0),
+      "Net Received": inv.status === "Received" ? Number(inv.netReceived || 0) : "",
+      "Effective Status": getEffectiveStatus(inv),
+      "Days Overdue": aging.isOverdue ? aging.overdueDays : ""
     };
   });
 
   const worksheet = XLSX.utils.json_to_sheet(rows);
   worksheet["!cols"] = [
     { wch: 14 }, { wch: 18 }, { wch: 22 }, { wch: 18 }, { wch: 8 },
-    { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 14 }, { wch: 16 }, { wch: 45 }
+    { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 14 }, { wch: 16 }, { wch: 45 },
+    { wch: 14 }, { wch: 14 }, { wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 12 }
   ];
 
   const workbook = XLSX.utils.book_new();
@@ -99,8 +123,10 @@ export function parseExcelFile(file) {
             else receivedOn = "";
 
             const invoicedMonth = String(pickVal(row, "Invoiced Month", "Month") || (raisedOn ? getMonthName(raisedOn) : "January")).trim();
-            const rawStatus = String(pickVal(row, "Collection Status", "Status", "Payment Status", "State", "Invoice Status") || "").trim();
-            const status = receivedOn || /^received$/i.test(rawStatus) ? "Received" : "Pending";
+            const rawStatus = String(
+              pickVal(row, "Collection Status", "Status", "Payment Status", "State", "Invoice Status") || ""
+            ).trim();
+            const status = normaliseStatus(rawStatus, receivedOn);
             const remarks = String(pickVal(row, "Remarks", "Notes", "Description", "Memo", "Comments", "Details") || "").trim();
 
             let taxRate = 0;
@@ -112,8 +138,26 @@ export function parseExcelFile(file) {
               if (taxMatch) taxRate = parseFloat(taxMatch[1]);
             }
 
-            const taxAmount = taxRate ? parseFloat(((numAmt * taxRate) / 100).toFixed(2)) : 0;
-            const netReceived = status === "Received" ? parseFloat((numAmt - taxAmount).toFixed(2)) : 0;
+            const declaredTaxAmt = pickVal(row, "Tax Amount", "TDS Amount", "Withholding Amount");
+            const taxAmount = declaredTaxAmt !== ""
+              ? (parseFloat(String(declaredTaxAmt).replace(/[^0-9.-]/g, "")) || 0)
+              : (taxRate ? parseFloat(((numAmt * taxRate) / 100).toFixed(2)) : 0);
+
+            const declaredNet = pickVal(row, "Net Received", "Amount Received", "Received Amount");
+            const netReceived = status === "Received"
+              ? (declaredNet !== ""
+                  ? (parseFloat(String(declaredNet).replace(/[^0-9.-]/g, "")) || 0)
+                  : parseFloat((numAmt - taxAmount).toFixed(2)))
+              : 0;
+
+            // Honour an explicit due date / terms column instead of always assuming Net 30.
+            let dueDate = pickVal(row, "Due Date", "Due on", "Payment Due");
+            if (dueDate instanceof Date) dueDate = toISODate(dueDate);
+            else if (typeof dueDate === "string" && dueDate.trim()) dueDate = toISODate(dueDate);
+            else dueDate = "";
+
+            const termsRaw = String(pickVal(row, "Payment Terms", "Terms") || "").trim();
+            const termDays = /(\d+)/.exec(termsRaw) ? Number(/(\d+)/.exec(termsRaw)[1]) : 30;
 
             return {
               id: `inv-import-${Date.now()}-${idx}`,
@@ -126,8 +170,8 @@ export function parseExcelFile(file) {
               invoicedMonth: invoicedMonth || "January",
               status,
               receivedOn: receivedOn || "",
-              paymentTerms: "Net 30",
-              dueDate: raisedOn ? toISODate(new Date(new Date(raisedOn).getTime() + 30 * 86400000)) : "",
+              paymentTerms: termsRaw || `Net ${termDays}`,
+              dueDate: dueDate || (raisedOn ? toISODate(new Date(new Date(raisedOn).getTime() + termDays * 86400000)) : ""),
               taxRate,
               taxAmount,
               netReceived,
