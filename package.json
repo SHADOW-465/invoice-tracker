@@ -3,30 +3,33 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "main": "electron/entry.cjs",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "desktop": "electron electron/entry.cjs",
-    "package:desktop": "vite build && node scripts/protect-build.cjs && npx @electron/packager . \"Simon & Son Invoice Ledger\" --platform=win32 --arch=x64 --out=dist-desktop --asar --ignore=\"(src|scripts|\\.vscode|\\.idea|AGENTS\\.md|DESIGN\\.md|PRODUCT\\.md|docs|graphify-out|gr|electron/main\\.cjs)\" --overwrite"
+    "desktop": "electron electron/main.cjs",
+    "package:desktop": "vite build && electron-builder --win --dir"
   },
   "build": {
     "appId": "com.simonandson.invoicetracker",
     "productName": "Simon & Son Invoice Ledger",
     "directories": {
-      "output": "release"
+      "output": "C:\\Users\\acer\\Documents\\finance_tracker\\dist-desktop"
     },
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "public/**/*"
+      "public/**/*",
+      "package.json"
     ],
     "win": {
       "target": [
-        "portable"
-      ]
-    }
+        "dir"
+      ],
+      "executableName": "Simon & Son Invoice Ledger"
+    },
+    "asar": true
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",
@@ -34,11 +37,11 @@
     "lucide-react": "^1.16.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "bytenode": "^1.6.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
-    "bytenode": "^1.6.0",
     "electron": "^43.4.1",
     "electron-builder": "^26.15.3",
     "javascript-obfuscator": "^5.6.0",

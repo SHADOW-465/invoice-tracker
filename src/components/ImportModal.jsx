@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { X, FileSpreadsheet, PlusCircle, Layers, RefreshCw, CheckCircle2 } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { X, FileSpreadsheet, PlusCircle, Layers, RefreshCw, CheckCircle2, FolderCheck } from "lucide-react";
 import { formatCurrency } from "../utils/calculations";
 
 export function ImportModal({
@@ -7,32 +7,39 @@ export function ImportModal({
   onClose,
   file,
   parsedInvoices,
+  sheetName,
   activeWorkspaceName,
   onConfirmImport
 }) {
   const [importMode, setImportMode] = useState("new_workspace");
-  const [workspaceName, setWorkspaceName] = useState(() => {
+  const [workspaceName, setWorkspaceName] = useState("");
+
+  // Sync default ledger name whenever a new file is loaded
+  useEffect(() => {
     if (file?.name) {
-      return file.name.replace(/\.[^/.]+$/, "");
+      const cleanName = file.name.replace(/\.[^/.]+$/, "");
+      setWorkspaceName(cleanName);
     }
-    return "Imported Ledger";
-  });
+  }, [file]);
 
   if (!isOpen || !parsedInvoices || parsedInvoices.length === 0) return null;
 
   const handleImport = (e) => {
     e.preventDefault();
-    onConfirmImport(parsedInvoices, importMode, workspaceName);
+    const finalName = workspaceName.trim() || file?.name?.replace(/\.[^/.]+$/, "") || "Imported Ledger";
+    onConfirmImport(parsedInvoices, importMode, finalName);
     onClose();
   };
 
+  const displayName = workspaceName || file?.name?.replace(/\.[^/.]+$/, "") || "New Ledger";
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "560px" }}>
+      <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "580px" }}>
         <div className="modal-header">
           <h2 className="modal-title">
             <FileSpreadsheet size={20} color="var(--brand-primary)" />
-            <span>Import Excel Invoices</span>
+            <span>Import Excel Spreadsheet</span>
           </h2>
           <button className="btn btn-ghost btn-sm btn-icon" onClick={onClose}>
             <X size={18} />
@@ -41,32 +48,36 @@ export function ImportModal({
 
         <form onSubmit={handleImport}>
           <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            {/* File Info Callout */}
+            {/* File & Sheet Info Callout */}
             <div style={{
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
-              padding: "0.75rem 1rem",
+              padding: "0.85rem 1rem",
               background: "var(--bg-surface-elevated)",
               borderRadius: "var(--radius-sm)",
               border: "1px solid var(--border-subtle)"
             }}>
               <div>
-                <div style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>Uploaded File</div>
-                <div style={{ fontWeight: 700, color: "var(--ink-primary)", fontSize: "var(--text-sm)" }}>
+                <div style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>Detected File & Sheet</div>
+                <div style={{ fontWeight: 700, color: "var(--ink-primary)", fontSize: "var(--text-sm)", wordBreak: "break-all" }}>
                   {file?.name || "Excel Spreadsheet"}
                 </div>
+                {sheetName && (
+                  <div style={{ fontSize: "var(--text-xs)", color: "var(--brand-primary)", marginTop: "2px", fontWeight: 600 }}>
+                    Sheet: "{sheetName}"
+                  </div>
+                )}
               </div>
-              <span className="kpi-badge kpi-badge-success">
-                <CheckCircle2 size={11} />
-                <span>{parsedInvoices.length} Rows Found</span>
+              <span className="kpi-badge kpi-badge-success" style={{ whiteSpace: "nowrap" }}>
+                <span>{parsedInvoices.length} Invoices Found</span>
               </span>
             </div>
 
             {/* Import Mode Radio Options */}
             <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
               <label className="form-label" style={{ marginBottom: "0.25rem" }}>
-                How would you like to import this file?
+                Select Ledger Destination:
               </label>
 
               {/* Option 1: New Separate Ledger Workspace (Default & Recommended) */}
@@ -94,24 +105,26 @@ export function ImportModal({
                 <div style={{ flex: 1 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontWeight: 700, color: "var(--ink-primary)", fontSize: "var(--text-sm)" }}>
                     <PlusCircle size={14} color="var(--brand-primary)" />
-                    <span>Create as a New Separate Ledger</span>
+                    <span>Create as a New Ledger Workspace</span>
                     <span style={{ fontSize: "0.65rem", padding: "1px 5px", borderRadius: "3px", background: "var(--brand-primary)", color: "#fff", fontWeight: 800 }}>
                       RECOMMENDED
                     </span>
                   </div>
                   <p style={{ fontSize: "var(--text-xs)", color: "var(--ink-secondary)", marginTop: "2px" }}>
-                    Keeps this Excel file in its own isolated ledger. Does not alter or overwrite your existing ledger.
+                    Keeps this workbook isolated in its own tabbed ledger without modifying other files.
                   </p>
 
                   {importMode === "new_workspace" && (
                     <div style={{ marginTop: "0.65rem" }}>
-                      <label className="form-label" style={{ fontSize: "0.7rem" }}>New Ledger Name</label>
+                      <label className="form-label" style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--ink-primary)" }}>
+                        Ledger Workspace Name
+                      </label>
                       <input
                         type="text"
                         className="form-input"
                         value={workspaceName}
                         onChange={(e) => setWorkspaceName(e.target.value)}
-                        placeholder="e.g. Q3 Invoices, Simon and Son 2026"
+                        placeholder="e.g. Revenue & Pipeline_Simon and Sons_2530 Onwards_3"
                         required
                         autoFocus
                       />
@@ -148,7 +161,7 @@ export function ImportModal({
                     <span>Append / Merge into "{activeWorkspaceName}"</span>
                   </div>
                   <p style={{ fontSize: "var(--text-xs)", color: "var(--ink-secondary)", marginTop: "2px" }}>
-                    Adds new rows to your current ledger. Existing rows matching the same invoice number will be updated.
+                    Adds these rows into the active ledger "{activeWorkspaceName}".
                   </p>
                 </div>
               </label>
@@ -181,7 +194,7 @@ export function ImportModal({
                     <span>Replace "{activeWorkspaceName}" completely</span>
                   </div>
                   <p style={{ fontSize: "var(--text-xs)", color: "var(--ink-secondary)", marginTop: "2px" }}>
-                    Replaces all existing rows in "{activeWorkspaceName}" with the contents of this Excel file.
+                    Replaces existing rows in "{activeWorkspaceName}" with this imported file.
                   </p>
                 </div>
               </label>
@@ -210,8 +223,8 @@ export function ImportModal({
               Cancel
             </button>
             <button type="submit" className="btn btn-primary">
-              <FileSpreadsheet size={15} />
-              <span>Proceed with Import</span>
+              <FolderCheck size={15} />
+              <span>Import as "{importMode === 'new_workspace' ? displayName : activeWorkspaceName}"</span>
             </button>
           </div>
         </form>

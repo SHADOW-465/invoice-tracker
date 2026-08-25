@@ -2,11 +2,22 @@
 import * as XLSX from "xlsx";
 import { toISODate, getMonthName, calculateAging } from "./calculations";
 
-/**
- * Export invoice list to an Excel (.xlsx) file matching the exact layout of Invoice Tracker.xlsx
- */
+const cleanKey = (k) => String(k || "").replace(/\s+/g, " ").trim().toLowerCase();
+
+const pickVal = (row, ...keys) => {
+  const rowKeys = Object.keys(row || {});
+  for (const target of keys) {
+    const targetClean = cleanKey(target);
+    const found = rowKeys.find((k) => cleanKey(k) === targetClean);
+    if (found !== undefined && row[found] !== undefined && row[found] !== null && String(row[found]).trim() !== "") {
+      return row[found];
+    }
+  }
+  return "";
+};
+
 export function exportToExcel(invoices, filename = "Invoice_Tracker_Export.xlsx") {
-  const rows = invoices.map(inv => {
+  const rows = (invoices || []).map((inv) => {
     const aging = calculateAging(inv);
     const dueByDaysVal = inv.status === "Received" ? "-" : aging.daysOutstanding;
 
@@ -26,31 +37,16 @@ export function exportToExcel(invoices, filename = "Invoice_Tracker_Export.xlsx"
   });
 
   const worksheet = XLSX.utils.json_to_sheet(rows);
-
-  // Set column widths for clean readability
   worksheet["!cols"] = [
-    { wch: 14 }, // Invoice #
-    { wch: 18 }, // Client Name
-    { wch: 22 }, // Actual Invoiced Amt
-    { wch: 18 }, // Mode of Payment
-    { wch: 8 },  // UOM
-    { wch: 14 }, // Raised on
-    { wch: 16 }, // Invoiced Month
-    { wch: 18 }, // Collection Status
-    { wch: 14 }, // Received on
-    { wch: 16 }, // Due by (days)
-    { wch: 45 }  // Remarks
+    { wch: 14 }, { wch: 18 }, { wch: 22 }, { wch: 18 }, { wch: 8 },
+    { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 14 }, { wch: 16 }, { wch: 45 }
   ];
 
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Sheet1");
-
   XLSX.writeFile(workbook, filename);
 }
 
-/**
- * Parse an uploaded Excel / CSV File into Invoice objects
- */
 export function parseExcelFile(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -59,72 +55,93 @@ export function parseExcelFile(file) {
       try {
         const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, { type: "array", cellDates: true });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const rawJson = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
 
-        const parsedInvoices = rawJson.map((row, idx) => {
-          // Normalize column keys
-          const invoiceNo = row["Invoice #"] || row["Invoice No"] || row["Invoice"] || row["Invoice \n#"] || `INV-${Date.now()}-${idx}`;
-          const clientName = row["Client Name"] || row["Client"] || "Unnamed Client";
-          const amount = parseFloat(row["Actual Invoiced Amt"] || row["Amount"] || row["Invoiced Amt"] || 0);
-          const paymentMode = row["Mode of Payment"] || row["Payment Mode"] || "Online";
-          const currency = (row["UOM"] || row["Currency"] || "USD").toString().trim().toUpperCase();
-          
-          let raisedOn = row["Raised on"] || row["Raised Date"] || row["Date"] || "";
-          if (raisedOn instanceof Date) {
-            raisedOn = toISODate(raisedOn);
-          } else if (typeof raisedOn === "string") {
-            raisedOn = toISODate(raisedOn);
+        // Find the best sheet (first sheet, or sheet named Invoices / Revenue / 2026, or the one with most rows)
+        let chosenSheetName = workbook.SheetNames[0];
+        let maxRows = 0;
+        let chosenWorksheet = workbook.Sheets[chosenSheetName];
+
+        for (const sName of workbook.SheetNames) {
+          const ws = workbook.Sheets[sName];
+          const json = XLSX.utils.sheet_to_json(ws, { defval: "" });
+          if (json.length > maxRows) {
+            maxRows = json.length;
+            chosenSheetName = sName;
+            chosenWorksheet = ws;
           }
+        }
 
-          let receivedOn = row["Received on"] || row["Received Date"] || "";
-          if (receivedOn instanceof Date) {
-            receivedOn = toISODate(receivedOn);
-          } else if (typeof receivedOn === "string" && receivedOn.trim() !== "-") {
-            receivedOn = toISODate(receivedOn);
-          } else {
-            receivedOn = "";
-          }
+        const rawJson = XLSX.utils.sheet_to_json(chosenWorksheet, { defval: "" });
 
-          const invoicedMonth = row["Invoiced Month"] || row["Invoiced \nMonth"] || (raisedOn ? getMonthName(raisedOn) : "January");
-          const status = row["Collection Status"] || row["Collection \nStatus"] || row["Status"] || (receivedOn ? "Received" : "Pending");
-          const remarks = row["Remarks"] || row["Notes"] || "";
+        const parsedInvoices = rawJson
+          .map((row, idx) => {
+            const rawInvNo = pickVal(row, "Invoice #", "Invoice No", "Invoice No.", "Invoice", "Inv #", "Inv No", "Bill No", "Doc No", "Reference", "Doc #", "Number");
+            const rawClient = pickVal(row, "Client Name", "Client", "Customer", "Company", "Account", "Party Name", "Billed To", "Name", "Client/Customer");
+            const rawAmt = pickVal(row, "Actual Invoiced Amt", "Amount", "Invoiced Amt", "Total", "Invoice Amount", "Net Amount", "Gross Amount", "Value", "Bill Amount", "Price");
+            const numAmt = parseFloat(String(rawAmt).replace(/[^0-9.-]/g, "")) || 0;
 
-          // Check if remarks mention tax deduction
-          let taxRate = 0;
-          let taxAmount = 0;
-          let netReceived = amount;
+            // Discard empty/phantom placeholder rows (no client and 0 amount)
+            if (!rawClient && numAmt === 0) return null;
+            if (!rawInvNo && !rawClient) return null;
 
-          if (remarks.toLowerCase().includes("15% tax") || remarks.toLowerCase().includes("15%")) {
-            taxRate = 15;
-            taxAmount = parseFloat(((amount * 15) / 100).toFixed(2));
-            netReceived = parseFloat((amount - taxAmount).toFixed(2));
-          } else if (status === "Received") {
-            netReceived = amount;
-          }
+            const invoiceNo = String(rawInvNo || `INV-${Date.now()}-${idx + 1}`).trim();
+            const clientName = String(rawClient || "Direct Client").trim();
+            const paymentMode = String(pickVal(row, "Mode of Payment", "Payment Mode", "Payment Method", "Method", "Type", "Channel") || "Online").trim();
+            const currency = String(pickVal(row, "UOM", "Currency", "Curr", "Unit", "Currency Code") || "USD").trim().toUpperCase();
 
-          return {
-            id: `inv-import-${Date.now()}-${idx}`,
-            invoiceNo: String(invoiceNo).trim(),
-            clientName: String(clientName).trim(),
-            amount: isNaN(amount) ? 0 : amount,
-            currency: currency || "USD",
-            paymentMode: String(paymentMode).trim(),
-            raisedOn: raisedOn || toISODate(new Date()),
-            invoicedMonth: String(invoicedMonth).trim(),
-            status: String(status).trim(),
-            receivedOn: receivedOn || "",
-            paymentTerms: "Net 30",
-            dueDate: raisedOn ? toISODate(new Date(new Date(raisedOn).getTime() + 30 * 86400000)) : "",
-            taxRate,
-            taxAmount,
-            netReceived,
-            remarks: String(remarks).trim()
-          };
+            let raisedOn = pickVal(row, "Raised on", "Raised Date", "Invoice Date", "Date", "Bill Date", "Issue Date", "Dated", "Created");
+            if (raisedOn instanceof Date) raisedOn = toISODate(raisedOn);
+            else if (typeof raisedOn === "string") raisedOn = toISODate(raisedOn);
+
+            let receivedOn = pickVal(row, "Received on", "Received Date", "Paid Date", "Payment Date", "Settled on", "Date Paid");
+            if (receivedOn instanceof Date) receivedOn = toISODate(receivedOn);
+            else if (typeof receivedOn === "string" && receivedOn.trim() !== "-") receivedOn = toISODate(receivedOn);
+            else receivedOn = "";
+
+            const invoicedMonth = String(pickVal(row, "Invoiced Month", "Month") || (raisedOn ? getMonthName(raisedOn) : "January")).trim();
+            const rawStatus = String(pickVal(row, "Collection Status", "Status", "Payment Status", "State", "Invoice Status") || "").trim();
+            const status = receivedOn || /^received$/i.test(rawStatus) ? "Received" : "Pending";
+            const remarks = String(pickVal(row, "Remarks", "Notes", "Description", "Memo", "Comments", "Details") || "").trim();
+
+            let taxRate = 0;
+            const declaredTax = pickVal(row, "Tax %", "Tax Rate", "TDS %", "TDS Rate", "Withholding %");
+            if (declaredTax !== "") {
+              taxRate = parseFloat(String(declaredTax).replace(/[^0-9.-]/g, "")) || 0;
+            } else {
+              const taxMatch = /(\d+(?:\.\d+)?)\s*%/.exec(remarks);
+              if (taxMatch) taxRate = parseFloat(taxMatch[1]);
+            }
+
+            const taxAmount = taxRate ? parseFloat(((numAmt * taxRate) / 100).toFixed(2)) : 0;
+            const netReceived = status === "Received" ? parseFloat((numAmt - taxAmount).toFixed(2)) : 0;
+
+            return {
+              id: `inv-import-${Date.now()}-${idx}`,
+              invoiceNo,
+              clientName,
+              amount: numAmt,
+              currency: currency || "USD",
+              paymentMode: paymentMode || "Online",
+              raisedOn: raisedOn || toISODate(new Date()),
+              invoicedMonth: invoicedMonth || "January",
+              status,
+              receivedOn: receivedOn || "",
+              paymentTerms: "Net 30",
+              dueDate: raisedOn ? toISODate(new Date(new Date(raisedOn).getTime() + 30 * 86400000)) : "",
+              taxRate,
+              taxAmount,
+              netReceived,
+              remarks
+            };
+          })
+          .filter(Boolean);
+
+        resolve({
+          parsedInvoices,
+          sheetName: chosenSheetName,
+          totalRows: parsedInvoices.length,
+          fileName: file.name
         });
-
-        resolve(parsedInvoices);
       } catch (err) {
         reject(err);
       }

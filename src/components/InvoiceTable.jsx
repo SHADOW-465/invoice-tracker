@@ -165,6 +165,13 @@ export function InvoiceTable({
 
   return (
     <div id="invoice-ledger-table" style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.4rem 0.75rem", background: "var(--bg-surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-sm)", fontSize: "var(--text-xs)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span style={{ color: "var(--ink-muted)", fontWeight: 600 }}>Active Ledger File:</span>
+            <strong style={{ color: "var(--brand-primary)", fontWeight: 700 }}>{store.activeWorkspace?.name || "Master Ledger"}</strong>
+            <span className="kpi-badge kpi-badge-neutral">{invoices.length} invoices</span>
+          </div>
+        </div>
       {/* 1. Header Toolbar with Segmented Tabs & Filters */}
       <div className="ledger-header-bar">
         {/* Segmented Status Tabs */}

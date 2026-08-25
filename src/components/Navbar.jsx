@@ -9,7 +9,7 @@ import {
   Settings,
   ReceiptText,
   FolderKanban,
-  PlusCircle
+  FileSpreadsheet
 } from "lucide-react";
 import { CURRENCIES } from "../types/finance";
 import { exportToExcel, parseExcelFile } from "../utils/excelHandler";
@@ -27,14 +27,17 @@ export function Navbar({
   const [importModalData, setImportModalData] = useState({
     isOpen: false,
     file: null,
+    sheetName: "",
     parsedInvoices: []
   });
 
+  const activeName = store.activeWorkspace?.name || "Master Ledger";
+
   const handleExport = () => {
     try {
-      const ledgerName = (store.activeWorkspace?.name || "Invoice_Tracker").replace(/[^a-zA-Z0-9_-]/g, "_");
+      const ledgerName = activeName.replace(/[^a-zA-Z0-9_-]/g, "_");
       exportToExcel(store.invoices, `${ledgerName}_${new Date().toISOString().split("T")[0]}.xlsx`);
-      onShowToast(`Exported "${store.activeWorkspace?.name || 'Ledger'}" to Excel!`);
+      onShowToast(`Exported "${activeName}" to Excel!`);
     } catch (e) {
       console.error(e);
       onShowToast("Failed to export Excel file", "error");
@@ -46,15 +49,17 @@ export function Navbar({
     if (!file) return;
 
     try {
-      const parsed = await parseExcelFile(file);
-      if (parsed.length === 0) {
-        onShowToast("No invoice rows found in uploaded file", "error");
+      const result = await parseExcelFile(file);
+      const invoices = result.parsedInvoices || [];
+      if (invoices.length === 0) {
+        onShowToast("No valid invoice rows found in uploaded file", "error");
         return;
       }
       setImportModalData({
         isOpen: true,
         file,
-        parsedInvoices: parsed
+        sheetName: result.sheetName || "",
+        parsedInvoices: invoices
       });
     } catch (err) {
       console.error("Import error", err);
@@ -67,9 +72,9 @@ export function Navbar({
   const handleConfirmImport = (invoices, mode, workspaceName) => {
     store.importInvoices(invoices, mode, workspaceName);
     if (mode === "new_workspace") {
-      onShowToast(`Created new ledger "${workspaceName}" with ${invoices.length} invoices!`, "success");
+      onShowToast(`Loaded "${workspaceName}" with ${invoices.length} invoices!`, "success");
     } else {
-      onShowToast(`Imported ${invoices.length} invoices into "${store.activeWorkspace?.name}"!`, "success");
+      onShowToast(`Imported ${invoices.length} invoices into "${activeName}"!`, "success");
     }
   };
 
@@ -84,8 +89,8 @@ export function Navbar({
 
     list.push({
       value: "__NEW_WORKSPACE__",
-      label: "+ Create New Ledger",
-      sublabel: "Blank workspace"
+      label: "+ Create New Blank Ledger",
+      sublabel: "Empty workspace"
     });
 
     return list;
@@ -117,7 +122,7 @@ export function Navbar({
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                 <h1 className="brand-title">Invoice Tracker</h1>
                 {/* Multi-Ledger / Workspace Selector */}
-                <div style={{ display: "inline-flex", alignItems: "center" }} title="Switch between separated Excel ledgers">
+                <div style={{ display: "inline-flex", alignItems: "center" }} title="Switch between Excel ledgers">
                   <CustomSelect
                     value={store.activeWorkspaceId}
                     onChange={handleWorkspaceChange}
@@ -127,7 +132,9 @@ export function Navbar({
                   />
                 </div>
               </div>
-              <p className="brand-subtitle">{store.settings.companyName || "Financial Receivables Ledger"}</p>
+              <p className="brand-subtitle" title={activeName}>
+                Ledger: <strong style={{ color: "var(--ink-primary)" }}>{activeName}</strong> ({store.invoices?.length || 0} invoices)
+              </p>
             </div>
           </div>
 
@@ -157,13 +164,13 @@ export function Navbar({
               type="file"
               ref={fileInputRef}
               onChange={handleFileUpload}
-              accept=".xlsx, .xls, .csv"
+              accept=".xlsx, .xls, .xlsm, .csv"
               style={{ display: "none" }}
             />
             <button
               className="btn btn-secondary btn-sm"
               onClick={() => fileInputRef.current?.click()}
-              title="Import invoices from Excel (.xlsx) or CSV"
+              title="Import invoices from any Excel (.xlsx, .xls) or CSV file"
             >
               <Upload size={13} />
               <span>Import</span>
@@ -173,7 +180,7 @@ export function Navbar({
             <button
               className="btn btn-secondary btn-sm"
               onClick={handleExport}
-              title="Export to Excel matching original sheet format"
+              title="Export active ledger to Excel"
             >
               <Download size={13} />
               <span>Export</span>
@@ -223,10 +230,11 @@ export function Navbar({
       {/* Import Modal */}
       <ImportModal
         isOpen={importModalData.isOpen}
-        onClose={() => setImportModalData({ isOpen: false, file: null, parsedInvoices: [] })}
+        onClose={() => setImportModalData({ isOpen: false, file: null, sheetName: "", parsedInvoices: [] })}
         file={importModalData.file}
+        sheetName={importModalData.sheetName}
         parsedInvoices={importModalData.parsedInvoices}
-        activeWorkspaceName={store.activeWorkspace?.name || "Master Ledger"}
+        activeWorkspaceName={activeName}
         onConfirmImport={handleConfirmImport}
       />
     </>
