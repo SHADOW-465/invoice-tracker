@@ -7,7 +7,7 @@ const rootDir = 'C:/Users/acer/Documents/GitHub/invoice-tracker';
 const outDir = path.join(rootDir, 'dist-desktop');
 
 async function main() {
-  console.log('🚀 Building Standalone Windows Application for Simon & Son Invoice Ledger...');
+  console.log('🚀 Building Standalone Windows Installer for Simon & Son Invoice Ledger...');
   console.log('📁 Project directory:', rootDir);
   console.log('📁 Output directory:', outDir);
 
@@ -21,8 +21,8 @@ async function main() {
     execSync('powershell -Command "Get-Process -Name \'*Simon*\', \'*electron*\' -ErrorAction SilentlyContinue | Stop-Process -Force"');
   } catch (e) {}
 
-  // 3. Run electron-builder via JS API
-  console.log('📦 Step 3: Packaging Windows Setup and Standalone Portable executables...');
+  // 3. Run electron-builder for NSIS Installer
+  console.log('📦 Step 3: Packaging Windows Setup Installer...');
   const appPaths = await builder.build({
     projectDir: rootDir,
     config: {
@@ -42,8 +42,7 @@ async function main() {
       win: {
         icon: 'public/icon.ico',
         target: [
-          { target: 'nsis', arch: ['x64'] },
-          { target: 'portable', arch: ['x64'] }
+          { target: 'nsis', arch: ['x64'] }
         ],
         executableName: 'Simon & Son Invoice Ledger'
       },
@@ -59,19 +58,14 @@ async function main() {
         installerHeaderIcon: 'public/icon.ico',
         artifactName: 'Simon & Son Invoice Ledger Setup.${ext}'
       },
-      portable: {
-        artifactName: 'Simon & Son Invoice Ledger Portable.${ext}'
-      },
       asar: true
     }
   });
 
   console.log('✅ Packaged outputs:', appPaths);
 
-  // 4. Verify executables in dist-desktop and copy to root
   const setupExe = path.join(outDir, 'Simon & Son Invoice Ledger Setup.exe');
-  const portableExe = path.join(outDir, 'Simon & Son Invoice Ledger Portable.exe');
-  const rootExe = path.join(rootDir, 'Simon & Son Invoice Ledger.exe');
+  const rootExe = path.join(rootDir, 'Simon & Son Invoice Ledger Setup.exe');
 
   console.log('\n=============================================');
   console.log('🎉🎉🎉 BUILD SUCCESSFUL! 🎉🎉🎉');
@@ -79,22 +73,14 @@ async function main() {
 
   if (fs.existsSync(setupExe)) {
     const stat = fs.statSync(setupExe);
-    console.log('✅ 1. Windows Setup Installer (Recommended to send):');
-    console.log('   📍 Path:', setupExe);
-    console.log('   📊 Size:', (stat.size / (1024 * 1024)).toFixed(2), 'MB');
-    console.log('   🕒 Modified:', stat.mtime);
-  }
-
-  if (fs.existsSync(portableExe)) {
-    const stat = fs.statSync(portableExe);
-    console.log('✅ 2. Single-File Portable Executable (Zero-Install):');
-    console.log('   📍 Path:', portableExe);
+    console.log('✅ Windows Setup Installer (Send this single file):');
+    console.log('   📍 Path in dist-desktop:', setupExe);
     console.log('   📊 Size:', (stat.size / (1024 * 1024)).toFixed(2), 'MB');
     console.log('   🕒 Modified:', stat.mtime);
 
     try {
-      fs.copyFileSync(portableExe, rootExe);
-      console.log('✅ 3. Root Workspace Executable:');
+      fs.copyFileSync(setupExe, rootExe);
+      console.log('✅ Also mirrored to Workspace Root:');
       console.log('   📍 Path:', rootExe);
     } catch (e) {}
   }
