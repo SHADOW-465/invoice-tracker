@@ -3,15 +3,13 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "main": "electron/main.cjs",
+  "main": "electron/entry.cjs",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "desktop": "electron electron/main.cjs",
-    "package:desktop": "vite build && electron-builder --win",
-    "package:installer": "vite build && electron-builder --win nsis",
-    "package:portable": "vite build && electron-builder --win portable"
+    "desktop": "electron electron/entry.cjs",
+    "package:desktop": "vite build && node scripts/protect-build.cjs && npx @electron/packager . \"Simon & Son Invoice Ledger\" --platform=win32 --arch=x64 --out=dist-desktop --asar --ignore=\"(src|scripts|\\.vscode|\\.idea|AGENTS\\.md|DESIGN\\.md|PRODUCT\\.md|docs|graphify-out|gr|electron/main\\.cjs)\" --overwrite --icon=public/icon.ico"
   },
   "build": {
     "appId": "com.simonandson.invoicetracker",
