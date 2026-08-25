@@ -5,6 +5,7 @@ import react from "@vitejs/plugin-react";
 // In production both come from the same Node process, so no proxy is involved.
 export default defineConfig({
   plugins: [react()],
+  base: "./",
   server: {
     port: 3000,
     open: false,

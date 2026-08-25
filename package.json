@@ -3,6 +3,7 @@
   "private": true,
   "version": "2.0.0",
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "dev:server": "node --watch server/server.js",
@@ -10,9 +11,47 @@
     "start": "npm run build && node server/server.js",
     "serve": "node server/server.js",
     "test": "node server/store.test.js",
-    "tauri": "tauri",
-    "desktop": "tauri dev",
-    "desktop:build": "tauri build"
+    "desktop": "electron electron/main.cjs",
+    "desktop:build": "node build_standalone.cjs"
+  },
+  "build": {
+    "appId": "com.simonandson.invoicetracker",
+    "productName": "Simon & Son Invoice Ledger",
+    "directories": {
+      "output": "dist-desktop"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "public/**/*",
+      "src/lib/workbook.js",
+      "Invoice Tracker.xlsx",
+      "package.json"
+    ],
+    "win": {
+      "icon": "public/icon.ico",
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "executableName": "Simon & Son Invoice Ledger"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "Simon & Son Invoice Ledger",
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico",
+      "installerHeaderIcon": "public/icon.ico",
+      "artifactName": "Simon & Son Invoice Ledger Setup.${ext}"
+    },
+    "portable": {
+      "artifactName": "Simon & Son Invoice Ledger Portable.${ext}"
+    },
+    "asar": true
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
@@ -26,6 +65,8 @@
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",
     "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^34.3.0",
+    "electron-builder": "^26.15.3",
     "vite": "^5.4.14"
   }
 }

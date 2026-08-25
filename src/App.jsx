@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "./lib/api";
+import { demoActive } from "./lib/demo";
 import { isDesktop, pickLedger, savedPath } from "./lib/desktop";
 import { decorate, nextInvoiceNo } from "./lib/derive";
 import { today } from "./lib/format";
@@ -189,6 +190,13 @@ export function App() {
     <div className="app">
       <Topbar ctx={ctx} />
       <main className="main">
+        {demoActive && (
+          <div className="page" style={{ paddingBottom: 0 }}>
+            <div className="banner">
+              Preview with sample invoices — changes stay in this browser tab and are not written to Excel.
+            </div>
+          </div>
+        )}
         {error && (
           <div className="page" style={{ paddingBottom: 0 }}>
             <div className="banner">⚠ {error}</div>
