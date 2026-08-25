@@ -67,7 +67,7 @@ export function InlineStatusDropdown({
         netReceived: 0
       });
       onShowToast(`Invoice #${invoice.invoiceNo} marked as Pending`);
-    } else if (newStatus === "Cancelled" || newStatus === "Draft") {
+    } else if (newStatus === "Cancelled" || newStatus === "Draft" || newStatus === "Duplicate") {
       // Voiding must also clear any recorded receipt, or the cash stays counted as
       // collected while the document reads Cancelled.
       onUpdateStatus(invoice.id, {
@@ -98,6 +98,10 @@ export function InlineStatusDropdown({
       ? "status-pending"
       : effectiveStatus === "Cancelled"
       ? "status-cancelled"
+      : effectiveStatus === "Duplicate"
+      ? "status-duplicate"
+      : effectiveStatus === "Suspended"
+      ? "status-suspended"
       : "status-draft";
 
   const displayLabel = effectiveStatus;
@@ -212,6 +216,22 @@ export function InlineStatusDropdown({
               </div>
             </div>
             {invoice.status === "Draft" && <Check size={13} className="inline-status-check" />}
+          </button>
+
+          {/* Option: Suspended - still owed, collection paused */}
+          <button
+            type="button"
+            className={`inline-status-option ${invoice.status === "Suspended" ? "selected" : ""}`}
+            onClick={(e) => handleSelect("Suspended", e)}
+          >
+            <div className="inline-status-option-left">
+              <span className="status-dot status-dot-pending"></span>
+              <div>
+                <div className="inline-status-option-title">Suspended</div>
+                <div className="inline-status-option-desc">Still owed, collection paused - never flagged overdue</div>
+              </div>
+            </div>
+            {invoice.status === "Suspended" && <Check size={13} className="inline-status-check" />}
           </button>
 
           {/* Option: Cancelled */}

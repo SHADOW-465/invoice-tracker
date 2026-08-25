@@ -1,6 +1,12 @@
 // Financial Calculation & Data Aggregation Utilities
 import { CURRENCIES } from "../types/finance";
 
+/** Fallback rates, derived from the single currency table. */
+const BASE_RATES = CURRENCIES.reduce((acc, c) => {
+  acc[c.code] = c.rateToBase;
+  return acc;
+}, {});
+
 export const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"
@@ -68,7 +74,14 @@ export function calculateDueDate(raisedOnStr, termDays = 30) {
  * Statuses that take an invoice out of the receivables cycle entirely.
  * A cancelled or draft invoice can never be "overdue" - there is nothing to collect.
  */
-export const TERMINAL_STATUSES = ["Cancelled", "Draft"];
+// Statuses that void the document entirely - not revenue, never chased.
+// "Duplicate" appears in the real ledger for records raised twice by mistake.
+export const TERMINAL_STATUSES = ["Cancelled", "Draft", "Duplicate"];
+
+// Still owed, but collection is deliberately paused. Must never age into Overdue,
+// or 50 knowingly-parked invoices show up every day as though they need chasing.
+export const ON_HOLD_STATUSES = ["Suspended"];
+export const isOnHold = (status) => ON_HOLD_STATUSES.includes(status);
 export const isTerminalStatus = (status) => TERMINAL_STATUSES.includes(status);
 
 /**
@@ -86,6 +99,8 @@ export function getEffectiveStatus(invoice) {
   if (raw === "Received") return "Received";
   // Terminal statuses are the user's explicit decision and never age.
   if (isTerminalStatus(raw)) return raw;
+  // On-hold invoices are still receivable but are not overdue.
+  if (isOnHold(raw)) return raw;
   // An explicit Overdue flag is respected even before the due date, otherwise an
   // invoice the user flagged by hand would vanish from every tab.
   if (raw === "Overdue") return "Overdue";
@@ -95,7 +110,7 @@ export function getEffectiveStatus(invoice) {
 /** True when the invoice still represents money we expect to collect. */
 export function isReceivable(invoice) {
   const eff = getEffectiveStatus(invoice);
-  return eff === "Pending" || eff === "Overdue";
+  return eff === "Pending" || eff === "Overdue" || isOnHold(eff);
 }
 
 /**
@@ -126,7 +141,7 @@ export function calculateAging(invoice) {
       const diffMs = receivedDate.getTime() - raisedDate.getTime();
       daysToCollect = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24)));
     }
-  } else if (invoice.status !== "Cancelled" && invoice.status !== "Draft") {
+  } else if (!isTerminalStatus(invoice.status) && !isOnHold(invoice.status)) {
     if (raisedDate) {
       const diffMs = today.getTime() - raisedDate.getTime();
       daysOutstanding = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24)));
@@ -161,17 +176,10 @@ export function convertToBaseCurrency(amount, currencyCode, baseCurrencyCode = "
   const num = Number(amount);
   if (currencyCode === baseCurrencyCode) return num;
 
-  const defaultRates = {
-    USD: 1.0,
-    EUR: 1.08,
-    GBP: 1.28,
-    CHF: 1.14,
-    INR: 0.012,
-    CAD: 0.74,
-    AUD: 0.66,
-    SGD: 0.75,
-    ...rates
-  };
+  // Built from the currency table itself rather than a second hard-coded copy.
+  // The duplicate list is exactly how ZAR, NZD and MXN ended up converting 1:1
+  // with the dollar after being added to CURRENCIES.
+  const defaultRates = { ...BASE_RATES, ...rates };
 
   // An unknown currency previously fell back to 1.0, silently treating e.g. one
   // dirham as one dollar and overstating that invoice by nearly 4x. Warn loudly in
@@ -293,7 +301,7 @@ export function calculateFinancialMetrics(invoices, baseCurrency = "USD", rates 
     } else if (isReceivable(inv)) {
       currencyBreakdown[curr].pending += rawAmt;
 
-      if (aging.isOverdue) {
+      if (aging.isOverdue && !isOnHold(inv.status)) {
         totalOverdueBase += baseAmt;
         if (aging.overdueDays <= 30) agingBuckets.days1_30 += baseAmt;
         else if (aging.overdueDays <= 60) agingBuckets.days31_60 += baseAmt;
@@ -404,7 +412,9 @@ export function getAvailableYears(invoices = []) {
 
 /** Aging bucket label for a single invoice - shared by the table filter and reports. */
 export function getAgingBucket(invoice) {
-  if (getEffectiveStatus(invoice) === "Received") return "settled";
+  const eff = getEffectiveStatus(invoice);
+  if (eff === "Received") return "settled";
+  if (isOnHold(eff)) return "onhold";
   const { isOverdue, overdueDays } = calculateAging(invoice);
   if (!isOverdue) return "current";
   if (overdueDays <= 30) return "1-30";

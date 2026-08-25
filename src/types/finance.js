@@ -109,6 +109,9 @@ export const CURRENCIES = [
   { code: "INR", symbol: "₹", name: "Indian Rupee", rateToBase: 0.012 },
   { code: "AED", symbol: "AED ", name: "UAE Dirham", rateToBase: 0.272 },
   { code: "SAR", symbol: "SAR ", name: "Saudi Riyal", rateToBase: 0.266 },
+  { code: "ZAR", symbol: "R ", name: "South African Rand", rateToBase: 0.0545 },
+  { code: "NZD", symbol: "NZ$", name: "New Zealand Dollar", rateToBase: 0.595 },
+  { code: "MXN", symbol: "MX$", name: "Mexican Peso", rateToBase: 0.0495 },
   { code: "CAD", symbol: "CA$", name: "Canadian Dollar", rateToBase: 0.74 },
   { code: "AUD", symbol: "AU$", name: "Australian Dollar", rateToBase: 0.66 },
   { code: "SGD", symbol: "SG$", name: "Singapore Dollar", rateToBase: 0.75 }
@@ -143,6 +146,8 @@ export const STATUS_TYPES = [
   { value: "Received", label: "Received", color: "var(--status-received)" },
   { value: "Pending", label: "Pending", color: "var(--status-pending)" },
   { value: "Overdue", label: "Overdue", color: "var(--status-overdue)" },
+  { value: "Suspended", label: "Suspended (on hold)", color: "var(--status-pending)" },
   { value: "Draft", label: "Draft", color: "var(--status-draft)" },
-  { value: "Cancelled", label: "Cancelled", color: "var(--status-cancelled)" }
+  { value: "Cancelled", label: "Cancelled", color: "var(--status-cancelled)" },
+  { value: "Duplicate", label: "Duplicate", color: "var(--status-cancelled)" }
 ];

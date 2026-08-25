@@ -104,7 +104,8 @@ export function InvoiceTable({
     const counts = {
       all: invoices.length,
       Received: 0, Pending: 0, Overdue: 0,
-      Draft: 0, Cancelled: 0, Outstanding: 0, TaxDeducted: 0
+      Draft: 0, Cancelled: 0, Duplicate: 0, Suspended: 0,
+      Outstanding: 0, TaxDeducted: 0
     };
     invoices.forEach((inv) => {
       const eff = getEffectiveStatus(inv);
@@ -261,6 +262,32 @@ export function InvoiceTable({
 
   return (
     <div id="invoice-ledger-table" style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+        {/* A currency with no rate converts 1:1 with the dollar and silently
+            overstates every invoice in it. Too consequential to leave buried
+            in Settings. */}
+        {store.unratedCurrencies?.length > 0 && (
+          <div className="data-quality-notice" role="alert">
+            <AlertTriangle size={16} style={{ color: "var(--status-pending-text)", flexShrink: 0, marginTop: 1 }} />
+            <div className="data-quality-notice-body">
+              <div className="data-quality-notice-title">
+                {store.unratedCurrencies.length} currenc{store.unratedCurrencies.length === 1 ? "y has" : "ies have"} no exchange rate
+              </div>
+              <p>
+                These invoices are being counted as though 1 unit equals 1 US dollar, which
+                overstates every converted total on this screen. Set a rate in{" "}
+                <strong>Settings &rarr; Exchange Rates</strong> to correct them.
+              </p>
+              <div className="data-quality-list">
+                {store.unratedCurrencies.map((c) => (
+                  <span key={c.code} className="data-quality-chip">
+                    {c.code} · {c.count} invoice{c.count === 1 ? "" : "s"}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.4rem 0.75rem", background: "var(--bg-surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-sm)", fontSize: "var(--text-xs)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <span style={{ color: "var(--ink-muted)", fontWeight: 600 }}>Active Ledger File:</span>
@@ -300,6 +327,26 @@ export function InvoiceTable({
             <span>Overdue</span>
             <span className="tab-badge tab-badge-overdue">{statusCounts.Overdue}</span>
           </button>
+          {statusCounts.Suspended > 0 && (
+            <button
+              className={`segmented-tab-btn ${statusFilter === "Suspended" ? "active" : ""}`}
+              onClick={() => setStatusFilter(statusFilter === "Suspended" ? "all" : "Suspended")}
+              title="Owed, but collection is paused - never counted as overdue"
+            >
+              <span>Suspended</span>
+              <span className="tab-badge tab-badge-pending">{statusCounts.Suspended}</span>
+            </button>
+          )}
+          {statusCounts.Duplicate > 0 && (
+            <button
+              className={`segmented-tab-btn ${statusFilter === "Duplicate" ? "active" : ""}`}
+              onClick={() => setStatusFilter(statusFilter === "Duplicate" ? "all" : "Duplicate")}
+              title="Raised twice by mistake - excluded from revenue"
+            >
+              <span>Duplicate</span>
+              <span className="tab-badge">{statusCounts.Duplicate}</span>
+            </button>
+          )}
           {statusCounts.Draft > 0 && (
             <button
               className={`segmented-tab-btn ${statusFilter === "Draft" ? "active" : ""}`}
@@ -577,8 +624,10 @@ export function InvoiceTable({
                       <option value="Pending">Pending</option>
                       <option value="Overdue">Overdue</option>
                       <option value="Outstanding">Outstanding (unpaid)</option>
+                      <option value="Suspended">Suspended (on hold)</option>
                       <option value="Draft">Draft</option>
                       <option value="Cancelled">Cancelled</option>
+                      <option value="Duplicate">Duplicate</option>
                       <option value="TaxDeducted">Tax withheld</option>
                     </select>
                   </th>
@@ -618,6 +667,7 @@ export function InvoiceTable({
                       <option value="31-60">31-60 days</option>
                       <option value="61-90">61-90 days</option>
                       <option value="90+">90+ days</option>
+                      <option value="onhold">On hold</option>
                       <option value="settled">Settled</option>
                     </select>
                   </th>

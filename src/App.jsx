@@ -8,6 +8,7 @@ import { MarkPaidModal } from "./components/MarkPaidModal";
 import { InvoicePreviewModal } from "./components/InvoicePreviewModal";
 import { ClientsModal } from "./components/ClientsModal";
 import { SettingsModal } from "./components/SettingsModal";
+import { StorageGuard } from "./components/StorageGuard";
 import { CheckCircle2, AlertCircle, Trash2, Info, Check } from "lucide-react";
 
 export function App() {
@@ -77,14 +78,10 @@ export function App() {
 
   return (
     <div className="app-container">
-      {/* Storage failure is otherwise invisible: the UI keeps accepting edits that
-          were never written to disk. Say so loudly and keep saying it. */}
-      {store.storageError && (
-        <div className="storage-alert" role="alert">
-          <AlertCircle size={15} />
-          <span>{store.storageError}</span>
-        </div>
-      )}
+      {/* Storage trouble is otherwise invisible: the UI keeps accepting edits that
+          never reached disk. StorageGuard explains what happened and what to do -
+          blocking the app when data is at risk, warning persistently when it is not. */}
+      <StorageGuard store={store} onShowToast={showToast} />
 
       {/* Navigation Header */}
       <Navbar
@@ -123,6 +120,7 @@ export function App() {
         onSave={handleSaveInvoice}
         getNextInvoiceNumber={store.getNextInvoiceNumber}
         clients={store.clients}
+        existingInvoices={store.invoices}
       />
 
       <MarkPaidModal

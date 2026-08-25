@@ -26,9 +26,34 @@ function normaliseStatus(rawStatus, receivedOn) {
   if (receivedOn) return "Received";
   if (/^(received|paid|settled|complete[d]?|closed)$/.test(v)) return "Received";
   if (/^(cancel|cancelled|canceled|void|voided|written off|write[- ]off)$/.test(v)) return "Cancelled";
+  if (/^(duplicate|dupe|repeated)$/.test(v)) return "Duplicate";
+  if (/^(suspend|suspended|on hold|hold|paused|parked)$/.test(v)) return "Suspended";
   if (/^(draft|unissued|proforma|pro[- ]forma)$/.test(v)) return "Draft";
   if (/^(overdue|late|past due)$/.test(v)) return "Overdue";
   return "Pending";
+}
+
+/**
+ * Spreadsheets rarely hold clean ISO codes. Map the labels this business actually
+ * uses; anything still unrecognised is passed through untouched so it shows up in
+ * Settings as needing a rate rather than being silently converted 1:1.
+ */
+const CURRENCY_ALIASES = {
+  RAND: "ZAR", "SA RAND": "ZAR", R: "ZAR",
+  "US DOLLAR": "USD", USD$: "USD", DOLLAR: "USD", $: "USD",
+  POUND: "GBP", GBP$: "GBP", STERLING: "GBP", "£": "GBP",
+  EURO: "EUR", "€": "EUR",
+  RUPEE: "INR", RS: "INR", "₹": "INR", INR$: "INR",
+  DIRHAM: "AED",
+  "NZ DOLLAR": "NZD", "AU DOLLAR": "AUD", "AUS": "AUD",
+  "CAN DOLLAR": "CAD",
+  "SING DOLLAR": "SGD"
+};
+
+function normaliseCurrency(raw) {
+  const v = String(raw || "").trim().toUpperCase();
+  if (!v) return "";
+  return CURRENCY_ALIASES[v] || v;
 }
 
 export function exportToExcel(invoices, filename = "Invoice_Tracker_Export.xlsx") {
@@ -111,7 +136,7 @@ export function parseExcelFile(file) {
             const invoiceNo = String(rawInvNo || `INV-${Date.now()}-${idx + 1}`).trim();
             const clientName = String(rawClient || "Direct Client").trim();
             const paymentMode = String(pickVal(row, "Mode of Payment", "Payment Mode", "Payment Method", "Method", "Type", "Channel") || "Online").trim();
-            const currency = String(pickVal(row, "UOM", "Currency", "Curr", "Unit", "Currency Code") || "USD").trim().toUpperCase();
+            const currency = normaliseCurrency(pickVal(row, "UOM", "Currency", "Curr", "Unit", "Currency Code"));
 
             let raisedOn = pickVal(row, "Raised on", "Raised Date", "Invoice Date", "Date", "Bill Date", "Issue Date", "Dated", "Created");
             if (raisedOn instanceof Date) raisedOn = toISODate(raisedOn);
@@ -164,7 +189,7 @@ export function parseExcelFile(file) {
               invoiceNo,
               clientName,
               amount: numAmt,
-              currency: currency || "USD",
+              currency: currency || "UNKNOWN",
               paymentMode: paymentMode || "Online",
               raisedOn: raisedOn || toISODate(new Date()),
               invoicedMonth: invoicedMonth || "January",

@@ -2,6 +2,19 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { INITIAL_INVOICES, INITIAL_CLIENTS } from "../types/finance";
 import {
+  STORAGE_KEYS,
+  safeRead,
+  safeWrite,
+  isValidWorkspaces,
+  quarantine,
+  mirrorWrite,
+  mirrorRead,
+  estimateUsage,
+  readQuarantined,
+  clearQuarantined,
+  salvageInvoices
+} from "../utils/storage";
+import {
   getMonthName,
   calculateDueDate,
   calculateAging,
@@ -13,16 +26,6 @@ import {
   getAvailableYears,
   getUsedCurrencies
 } from "../utils/calculations";
-
-const STORAGE_KEYS = {
-  INVOICES: "apex_finance_invoices_v1",
-  WORKSPACES: "apex_finance_workspaces_v1",
-  ACTIVE_WORKSPACE: "apex_finance_active_workspace_v1",
-  CLIENTS: "apex_finance_clients_v1",
-  SETTINGS: "apex_finance_settings_v1",
-  THEME: "apex_finance_theme_v1",
-  BASE_CURRENCY: "apex_finance_base_currency_v1"
-};
 
 const DEFAULT_SETTINGS = {
   companyName: "Simon & Son Global",
@@ -44,43 +47,87 @@ const DEFAULT_SETTINGS = {
     INR: 0.012,
     AED: 0.272,
     SAR: 0.266,
+    ZAR: 0.0545,
+    NZD: 0.595,
+    MXN: 0.0495,
     CAD: 0.74,
     AUD: 0.66,
     SGD: 0.75
   }
 };
 
-export function useFinanceStore() {
-  // 1. Workspaces state (Multi-Ledger Support)
-  const [workspaces, setWorkspaces] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.WORKSPACES);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+const freshWorkspace = (invoices = INITIAL_INVOICES) => ([
+  { id: "default", name: "Master Ledger", invoices, createdAt: new Date().toISOString() }
+]);
+
+/**
+ * Load the ledger without ever destroying what is already on disk.
+ *
+ * A damaged read used to fall through to the bundled sample invoices, which the
+ * persist effect then wrote straight over the damaged original - turning a
+ * recoverable problem into permanent, silent data loss. Now a damaged read puts
+ * the app into recovery mode and every write is blocked until the user decides.
+ */
+function hydrateWorkspaces() {
+  const read = safeRead(STORAGE_KEYS.WORKSPACES, isValidWorkspaces);
+
+  if (read.status === "ok") {
+    return { workspaces: read.value, storage: { status: "ok" } };
+  }
+
+  if (read.status === "corrupt") {
+    const quarantineKey = quarantine(STORAGE_KEYS.WORKSPACES, read.raw);
+    return {
+      // Show an empty ledger, never sample data - sample data in a real business
+      // ledger reads as "my invoices turned into someone else's".
+      workspaces: freshWorkspace([]),
+      storage: {
+        status: "corrupt",
+        quarantineKey,
+        rawBytes: read.raw ? read.raw.length : 0,
+        detail: read.error ? read.error.message : "Saved data could not be read"
       }
-      // Migrate legacy invoices if present
-      const legacySaved = localStorage.getItem(STORAGE_KEYS.INVOICES);
-      const initialInv = legacySaved ? JSON.parse(legacySaved) : INITIAL_INVOICES;
-      return [
-        {
-          id: "default",
-          name: "Master Ledger",
-          invoices: initialInv,
-          createdAt: new Date().toISOString()
-        }
-      ];
-    } catch (e) {
-      return [
-        {
-          id: "default",
-          name: "Master Ledger",
-          invoices: INITIAL_INVOICES,
-          createdAt: new Date().toISOString()
-        }
-      ];
-    }
-  });
+    };
+  }
+
+  if (read.status === "unavailable") {
+    return {
+      workspaces: freshWorkspace([]),
+      storage: {
+        status: "unavailable",
+        detail: read.error ? read.error.message : "Local storage is not accessible"
+      }
+    };
+  }
+
+  // Nothing stored yet: first run, or a legacy single-ledger install to migrate.
+  const legacy = safeRead(STORAGE_KEYS.INVOICES);
+  if (legacy.status === "ok" && Array.isArray(legacy.value) && legacy.value.length) {
+    return { workspaces: freshWorkspace(legacy.value), storage: { status: "ok" } };
+  }
+  if (legacy.status === "corrupt") {
+    const quarantineKey = quarantine(STORAGE_KEYS.INVOICES, legacy.raw);
+    return {
+      workspaces: freshWorkspace([]),
+      storage: {
+        status: "corrupt",
+        quarantineKey,
+        rawBytes: legacy.raw ? legacy.raw.length : 0,
+        detail: "Saved data from an earlier version could not be read"
+      }
+    };
+  }
+
+  return { workspaces: freshWorkspace(INITIAL_INVOICES), storage: { status: "ok" } };
+}
+
+export function useFinanceStore() {
+  // Hydrate once, capturing both the data and how healthy storage was.
+  const [initial] = useState(hydrateWorkspaces);
+
+  // 1. Workspaces state (Multi-Ledger Support)
+  const [workspaces, setWorkspaces] = useState(initial.workspaces);
+  const [storageState, setStorageState] = useState(initial.storage);
 
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => {
     try {
@@ -89,6 +136,10 @@ export function useFinanceStore() {
       return "default";
     }
   });
+
+  // Writing is blocked entirely while storage is in a state we do not understand,
+  // so nothing can overwrite bytes the user might still recover from.
+  const writesBlocked = storageState.status === "corrupt";
 
   // Current active workspace
   const activeWorkspace = useMemo(() => {
@@ -193,50 +244,61 @@ export function useFinanceStore() {
     setAmountMax("");
   }, []);
 
-  // Surfaced to the UI so a failed save is never silent.
-  const [storageError, setStorageError] = useState(null);
+  const [lastSavedAt, setLastSavedAt] = useState(null);
 
-  // Persist workspaces to localStorage.
+  // Persist workspaces.
   //
   // The legacy mirror of the active ledger used to be written here as well, which
-  // doubled storage for no benefit - at a few thousand invoices that is the
-  // difference between fitting in the ~5MB quota and silently failing to save.
+  // doubled storage for no benefit. Every write now goes through safeWrite, which
+  // reports failures as data instead of throwing them at the console.
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaces));
-      localStorage.setItem(STORAGE_KEYS.ACTIVE_WORKSPACE, activeWorkspaceId);
-      // The legacy key is only read once, at first load, to migrate old data. Once
-      // workspaces exist it is dead weight, so drop it rather than mirroring into it.
-      if (localStorage.getItem(STORAGE_KEYS.INVOICES)) {
-        localStorage.removeItem(STORAGE_KEYS.INVOICES);
+    if (writesBlocked) return;
+
+    const result = safeWrite(STORAGE_KEYS.WORKSPACES, workspaces);
+
+    if (result.ok) {
+      try {
+        localStorage.setItem(STORAGE_KEYS.ACTIVE_WORKSPACE, activeWorkspaceId);
+        // The legacy key is read once at first load to migrate old installs. Once
+        // workspaces exist it is dead weight, so drop it rather than mirroring it.
+        if (localStorage.getItem(STORAGE_KEYS.INVOICES)) {
+          localStorage.removeItem(STORAGE_KEYS.INVOICES);
+        }
+      } catch {
+        /* the ledger itself saved, which is what matters */
       }
-      setStorageError(null);
-    } catch (e) {
-      console.error("Failed to persist workspaces", e);
-      const quotaHit = e && (e.name === "QuotaExceededError" || e.code === 22);
-      setStorageError(
-        quotaHit
-          ? "Ledger too large to save in browser storage. Export to Excel now - recent changes are not saved."
-          : "Could not save changes to local storage. Export to Excel to avoid losing work."
-      );
+      setLastSavedAt(Date.now());
+      setStorageState((prev) => (prev.status === "ok" ? prev : { status: "ok" }));
+      // Second copy in IndexedDB - a much larger quota, failing independently.
+      mirrorWrite(STORAGE_KEYS.WORKSPACES, workspaces);
+      return;
     }
-  }, [workspaces, activeWorkspaceId]);
+
+    console.error("Failed to persist workspaces", result.error);
+    // A failure while SAVING must never block the app. The data is still in memory
+    // and the only useful thing the user can do is export it - which requires the
+    // interface to stay reachable.
+    setStorageState({
+      status: "save-failed",
+      kind: result.kind,
+      detail: result.error ? result.error.message : "Unknown storage error",
+      attemptedBytes: result.bytes || 0,
+      usageBytes: estimateUsage()
+    });
+    // The primary write failed, so the mirror is now the only fresh copy. This is
+    // exactly when it earns its keep.
+    mirrorWrite(STORAGE_KEYS.WORKSPACES, workspaces);
+  }, [workspaces, activeWorkspaceId, writesBlocked]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.CLIENTS, JSON.stringify(clients));
-    } catch (e) {
-      console.error("Failed to persist clients", e);
-    }
-  }, [clients]);
+    if (writesBlocked) return;
+    safeWrite(STORAGE_KEYS.CLIENTS, clients);
+  }, [clients, writesBlocked]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
-    } catch (e) {
-      console.error("Failed to persist settings", e);
-    }
-  }, [settings]);
+    if (writesBlocked) return;
+    safeWrite(STORAGE_KEYS.SETTINGS, settings);
+  }, [settings, writesBlocked]);
 
   useEffect(() => {
     try {
@@ -468,6 +530,108 @@ export function useFinanceStore() {
     );
   }, [setInvoices]);
 
+  /* ------------------------------------------------------------ recovery ---
+   * Everything the recovery card can offer the user. Each action reports what it
+   * actually achieved so the UI can state a result rather than just "done".
+   */
+
+  /** Look for a usable second copy without changing anything yet. */
+  const inspectRecoveryOptions = useCallback(async () => {
+    const options = { mirror: null, salvage: null };
+
+    const record = await mirrorRead(STORAGE_KEYS.WORKSPACES);
+    if (record && isValidWorkspaces(record.value)) {
+      const count = record.value.reduce((n, w) => n + (w.invoices ? w.invoices.length : 0), 0);
+      options.mirror = { savedAt: record.savedAt, invoiceCount: count, value: record.value };
+    }
+
+    if (storageState.quarantineKey) {
+      const raw = readQuarantined(storageState.quarantineKey);
+      const salvaged = salvageInvoices(raw);
+      if (salvaged.length) options.salvage = { invoiceCount: salvaged.length, invoices: salvaged };
+    }
+
+    return options;
+  }, [storageState.quarantineKey]);
+
+  /** Restore the IndexedDB copy and resume normal saving. */
+  const restoreFromMirror = useCallback((value) => {
+    if (!isValidWorkspaces(value)) return { ok: false, reason: "Backup copy was not usable" };
+    setWorkspaces(value);
+    setActiveWorkspaceId(value[0]?.id || "default");
+    setStorageState({ status: "ok" });
+    const count = value.reduce((n, w) => n + (w.invoices ? w.invoices.length : 0), 0);
+    return { ok: true, invoiceCount: count };
+  }, []);
+
+  /** Rebuild a ledger from whatever records survived inside the damaged blob. */
+  const restoreFromSalvage = useCallback((invoices) => {
+    if (!Array.isArray(invoices) || !invoices.length) {
+      return { ok: false, reason: "No readable invoices were found" };
+    }
+    setWorkspaces([{
+      id: "default",
+      name: "Master Ledger (recovered)",
+      invoices,
+      createdAt: new Date().toISOString()
+    }]);
+    setActiveWorkspaceId("default");
+    setStorageState({ status: "ok" });
+    return { ok: true, invoiceCount: invoices.length };
+  }, []);
+
+  /** Give up on the damaged data and start clean. Deliberately explicit. */
+  const discardAndStartFresh = useCallback(() => {
+    if (storageState.quarantineKey) clearQuarantined(storageState.quarantineKey);
+    setWorkspaces(freshWorkspace([]));
+    setActiveWorkspaceId("default");
+    setStorageState({ status: "ok" });
+    return { ok: true };
+  }, [storageState.quarantineKey]);
+
+  /** Re-attempt a save that previously failed, e.g. after freeing space. */
+  const retrySave = useCallback(() => {
+    const result = safeWrite(STORAGE_KEYS.WORKSPACES, workspaces);
+    if (result.ok) {
+      setLastSavedAt(Date.now());
+      setStorageState({ status: "ok" });
+      mirrorWrite(STORAGE_KEYS.WORKSPACES, workspaces);
+      return { ok: true };
+    }
+    setStorageState({
+      status: "save-failed",
+      kind: result.kind,
+      detail: result.error ? result.error.message : "Unknown storage error",
+      attemptedBytes: result.bytes || 0,
+      usageBytes: estimateUsage()
+    });
+    return { ok: false, kind: result.kind };
+  }, [workspaces]);
+
+  /** The raw damaged bytes, so the user can keep a copy before deciding. */
+  const getQuarantinedRaw = useCallback(
+    () => (storageState.quarantineKey ? readQuarantined(storageState.quarantineKey) : ""),
+    [storageState.quarantineKey]
+  );
+
+  const [lastBackupAt, setLastBackupAt] = useState(() => {
+    try {
+      const v = localStorage.getItem(STORAGE_KEYS.LAST_BACKUP);
+      return v ? Number(v) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const markBackedUp = useCallback(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.LAST_BACKUP, String(Date.now()));
+    } catch {
+      /* non-critical */
+    }
+    setLastBackupAt(Date.now());
+  }, []);
+
   // Decorate once per ledger change. Status, aging and period were previously
   // recomputed inside the filter predicate, so every keystroke in the search box
   // re-derived them for every invoice in the ledger.
@@ -491,6 +655,26 @@ export function useFinanceStore() {
   const availableYears = useMemo(() => getAvailableYears(invoices), [invoices]);
 
   const availableCurrencies = useMemo(() => getUsedCurrencies(invoices), [invoices]);
+
+  /**
+   * Currencies in the ledger with no exchange rate configured. These convert 1:1
+   * with the US dollar, which silently overstates them - a rand invoice counted as
+   * dollars is out by a factor of eighteen. Surfaced so it can be corrected.
+   */
+  const unratedCurrencies = useMemo(() => {
+    const rates = settings?.exchangeRates || {};
+    return availableCurrencies
+      .filter((code) => code && !rates[code])
+      .map((code) => {
+        const affected = invoices.filter((i) => (i.currency || "") === code);
+        return {
+          code,
+          count: affected.length,
+          faceValue: affected.reduce((sum, i) => sum + Number(i.amount || 0), 0)
+        };
+      })
+      .sort((a, b) => b.faceValue - a.faceValue);
+  }, [availableCurrencies, settings, invoices]);
 
   const availableClients = useMemo(() => {
     const names = new Set();
@@ -624,9 +808,19 @@ export function useFinanceStore() {
     amountMax,
     availableYears,
     availableCurrencies,
+    unratedCurrencies,
     availableClients,
     availablePaymentModes,
-    storageError,
+    storageState,
+    lastSavedAt,
+    lastBackupAt,
+    markBackedUp,
+    inspectRecoveryOptions,
+    restoreFromMirror,
+    restoreFromSalvage,
+    discardAndStartFresh,
+    retrySave,
+    getQuarantinedRaw,
     sortField,
     sortDirection,
     setSearchQuery,

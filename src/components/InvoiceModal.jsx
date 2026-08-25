@@ -10,7 +10,8 @@ export function InvoiceModal({
   initialData,
   onSave,
   getNextInvoiceNumber,
-  clients
+  clients,
+  existingInvoices = []
 }) {
   const isEditing = Boolean(initialData && initialData.id);
 
@@ -118,6 +119,19 @@ export function InvoiceModal({
     }
     if (!formData.clientName.trim()) {
       setErrorMessage("Please enter or select a Client Name");
+      return;
+    }
+    // An invoice number is the record's identity. Two invoices sharing one means
+    // an import that merges by number silently destroys one of them.
+    const clash = (existingInvoices || []).find(
+      (i) =>
+        String(i.invoiceNo || "").trim().toLowerCase() ===
+          formData.invoiceNo.trim().toLowerCase() && i.id !== initialData?.id
+    );
+    if (clash) {
+      setErrorMessage(
+        `Invoice number ${formData.invoiceNo.trim()} is already used by ${clash.clientName || "another record"}. Invoice numbers must be unique.`
+      );
       return;
     }
     if (!formData.amount || isNaN(parseFloat(formData.amount)) || parseFloat(formData.amount) <= 0) {
