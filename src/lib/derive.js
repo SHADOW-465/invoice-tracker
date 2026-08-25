@@ -114,16 +114,19 @@ export function behaviorOf(avgDays, outstanding) {
 }
 
 export function clientStats(list, clients) {
-  return clients
+  return (clients || [])
+    .filter((c) => c && (c.name || c.fullName))
     .map((c) => {
-      const set = list.filter((i) => i.clientName === c.name);
+      const cName = c.name || c.fullName;
+      const set = (list || []).filter((i) => i.clientName === cName || (c.name && i.clientName === c.name));
       const paid = set.filter((i) => i.daysToCollect !== null);
-      const invoiced = set.reduce((a, i) => a + i.base, 0);
-      const collected = set.reduce((a, i) => a + i.receivedBase, 0);
-      const outstanding = set.filter((i) => i.status !== "Received").reduce((a, i) => a + i.base, 0);
+      const invoiced = set.reduce((a, i) => a + (i.base || 0), 0);
+      const collected = set.reduce((a, i) => a + (i.receivedBase || 0), 0);
+      const outstanding = set.filter((i) => i.status !== "Received").reduce((a, i) => a + (i.base || 0), 0);
       const avgDays = paid.length ? Math.round(paid.reduce((a, i) => a + i.daysToCollect, 0) / paid.length) : 0;
       return {
         ...c,
+        name: cName,
         invoices: set,
         count: set.length,
         invoiced,
@@ -139,7 +142,7 @@ export function clientStats(list, clients) {
         behavior: behaviorOf(avgDays, outstanding)
       };
     })
-    .sort((a, b) => b.invoiced - a.invoiced);
+    .sort((a, b) => (b.invoiced || 0) - (a.invoiced || 0));
 }
 
 function mode(values) {
@@ -159,5 +162,10 @@ export function nextInvoiceNo(invoices, prefix) {
   return `${prefix}${String(highest + 1).padStart(width, "0")}`;
 }
 
-export const initialsOf = (name) =>
-  name.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+export const initialsOf = (name) => {
+  const s = String(name || "").trim();
+  if (!s) return "—";
+  const parts = s.split(/\s+/).filter(Boolean);
+  if (!parts.length) return "—";
+  return parts.map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+};

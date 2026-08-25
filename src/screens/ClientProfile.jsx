@@ -77,8 +77,8 @@ export function ClientProfile({ ctx }) {
             <div className="amount-big" style={{ fontSize: 30 }}>{c.avgDays || "—"}</div>
             <div className="muted" style={{ fontSize: 12 }}>days average to pay</div>
           </div>
-          <Pips n={Math.round(c.behavior.pips * 1.6)} total={8} color={c.behavior.color} tall />
-          <div className="sub-line" style={{ marginTop: 10, lineHeight: 1.5 }}>{c.behavior.note}</div>
+          <Pips n={Math.round((c.behavior?.pips || 0) * 1.6)} total={8} color={c.behavior?.color} tall />
+          <div className="sub-line" style={{ marginTop: 10, lineHeight: 1.5 }}>{c.behavior?.note || ""}</div>
 
           <div style={{ marginTop: 18 }}>
             <Kv k="Fastest payment" v={c.fastest !== null ? `${c.fastest} days` : "—"} />

@@ -45,9 +45,9 @@ export function Clients({ ctx }) {
             <div className="num right muted">{c.avgDays ? `${c.avgDays} days` : "—"}</div>
             <div className="row" style={{ gap: 10 }}>
               <div style={{ width: 62 }}>
-                <Pips n={c.behavior.pips} color={c.behavior.color} />
+                <Pips n={c.behavior?.pips || 0} color={c.behavior?.color} />
               </div>
-              <span className="muted" style={{ fontSize: 12 }}>{c.behavior.label}</span>
+              <span className="muted" style={{ fontSize: 12 }}>{c.behavior?.label || "—"}</span>
             </div>
           </button>
         ))}

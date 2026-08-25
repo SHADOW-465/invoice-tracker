@@ -14,17 +14,19 @@ const PARENT = { invoice: "workspace", client: "clients" };
 
 export function Topbar({ ctx }) {
   const active = PARENT[ctx.route.screen] || ctx.route.screen;
-  const name = ctx.settings.workspaceName || "Workspace";
+  const rawFileName = ctx.file ? ctx.file.split(/[\\/]/).pop() : "";
+  const fileCleanName = rawFileName ? rawFileName.replace(/\.[^/.]+$/, "") : "";
+  const name = fileCleanName || ctx.settings.workspaceName || "Workspace";
   const overdue = ctx.all.filter((i) => i.status === "Overdue").length;
 
   return (
     <header className="topbar">
       <div className="topbar-inner">
-        <button className="brand" onClick={() => ctx.go("workspace")} title="Workspace">
+        <button className="brand" onClick={() => ctx.go("workspace")} title={`Workbook: ${rawFileName || name}`}>
           <span className="brand-mark">F</span>
           <span className="brand-text">
             <span className="brand-name">FinanceOS</span>
-            <span className="brand-sub truncate">{name}</span>
+            <span className="brand-sub truncate" title={rawFileName || name}>{rawFileName || name}</span>
           </span>
         </button>
 

@@ -105,36 +105,36 @@ const pick = (row, ...names) => {
 };
 
 function rowToInvoice(row) {
-  const raisedOn = toISO(pick(row, "Raised on", "Raised Date", "Date"));
-  const receivedOn = toISO(pick(row, "Received on", "Received Date"));
-  const amount = num(pick(row, "Actual Invoiced Amt", "Amount", "Invoiced Amt"));
-  const rawStatus = String(pick(row, "Collection Status", "Status") || "").trim();
-  const termDays = num(pick(row, "Term Days")) || 30;
-  const remarks = String(pick(row, "Remarks", "Notes") || "").trim();
+  const raisedOn = toISO(pick(row, "Raised on", "Raised Date", "Invoice Date", "Date", "Bill Date", "Issue Date", "Dated", "Created"));
+  const receivedOn = toISO(pick(row, "Received on", "Received Date", "Paid Date", "Payment Date", "Settled on", "Date Paid"));
+  const amount = num(pick(row, "Actual Invoiced Amt", "Amount", "Invoiced Amt", "Total", "Invoice Amount", "Net Amount", "Gross Amount", "Value", "Bill Amount", "Price"));
+  const rawStatus = String(pick(row, "Collection Status", "Status", "Payment Status", "State", "Invoice Status") || "").trim();
+  const termDays = num(pick(row, "Term Days", "Terms", "Net Days", "Payment Terms")) || 30;
+  const remarks = String(pick(row, "Remarks", "Notes", "Description", "Memo", "Comments", "Details") || "").trim();
 
   // A legacy sheet records withholding only in the remarks text ("after 15% tax deduction").
-  const declared = num(pick(row, "Tax %", "Tax Rate"));
+  const declared = num(pick(row, "Tax %", "Tax Rate", "TDS %", "TDS Rate", "Withholding %"));
   const taxRate = declared || num(/(\d+(?:\.\d+)?)\s*%/.exec(remarks)?.[1] ?? 0);
-  const taxAmount = num(pick(row, "Tax Amount")) || round2((amount * taxRate) / 100);
+  const taxAmount = num(pick(row, "Tax Amount", "TDS Amount", "Tax Withheld", "Withheld Amount")) || round2((amount * taxRate) / 100);
 
-  const receivedCell = pick(row, "Amount Received", "Net Received");
+  const receivedCell = pick(row, "Amount Received", "Net Received", "Received Amt", "Paid Amount");
   const amountReceived =
     receivedCell === "" ? (receivedOn ? round2(amount - taxAmount) : 0) : num(receivedCell);
 
   return {
-    invoiceNo: String(pick(row, "Invoice #", "Invoice No", "Invoice") || "").trim(),
-    clientName: String(pick(row, "Client Name", "Client") || "").trim(),
+    invoiceNo: String(pick(row, "Invoice #", "Invoice No", "Invoice No.", "Invoice", "Inv #", "Inv No", "Bill No", "Doc No", "Reference") || "").trim(),
+    clientName: String(pick(row, "Client Name", "Client", "Customer", "Company", "Account", "Party Name", "Billed To", "Name") || "").trim(),
     amount,
-    currency: String(pick(row, "UOM", "Currency") || "USD").trim().toUpperCase(),
-    paymentMode: String(pick(row, "Mode of Payment", "Payment Mode") || "Online").trim(),
+    currency: String(pick(row, "UOM", "Currency", "Curr", "Unit", "Currency Code") || "USD").trim().toUpperCase(),
+    paymentMode: String(pick(row, "Mode of Payment", "Payment Mode", "Payment Method", "Method", "Type", "Channel") || "Online").trim(),
     raisedOn,
-    invoicedMonth: String(pick(row, "Invoiced Month") || monthOf(raisedOn)).trim(),
+    invoicedMonth: String(pick(row, "Invoiced Month", "Month") || monthOf(raisedOn)).trim(),
     // One vocabulary: Received or Outstanding on disk. "Overdue" is derived from the
     // due date at read time, so it can never go stale in the sheet. Legacy values
     // ("Pending", "Not received", …) all collapse to Outstanding.
     status: receivedOn || /^received$/i.test(rawStatus) ? "Received" : "Outstanding",
     receivedOn,
-    dueDate: toISO(pick(row, "Due Date")) || addDays(raisedOn, termDays),
+    dueDate: toISO(pick(row, "Due Date", "Due on", "Payment Due")) || addDays(raisedOn, termDays),
     termDays,
     taxRate,
     taxAmount,
@@ -187,7 +187,7 @@ export function parseWorkbook(bytes) {
   const invoices = XLSX.utils
     .sheet_to_json(wb.Sheets[invoiceSheetName(wb)], { defval: "" })
     .map(rowToInvoice)
-    .filter((i) => i.invoiceNo);
+    .filter((i) => i.invoiceNo && (i.clientName || i.amount > 0));
 
   const clients = wb.Sheets[CLIENT_SHEET]
     ? XLSX.utils

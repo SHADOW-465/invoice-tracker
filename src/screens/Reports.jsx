@@ -14,7 +14,7 @@ export function Reports({ ctx }) {
   const scoped = useMemo(
     () =>
       ctx.list
-        .filter((i) => keys.includes(i.raisedOn.slice(0, 7)))
+        .filter((i) => i.raisedOn && keys.includes(i.raisedOn.slice(0, 7)))
         .filter((i) => client === "All clients" || i.clientName === client),
     [ctx.list, keys, client]
   );

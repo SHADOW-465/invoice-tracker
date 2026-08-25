@@ -46,13 +46,14 @@ export const money = (n, currency, dec = 2) => symbolOf(currency) + group(n, dec
 /** Base-currency shorthand. Lakh/crore for INR, K/M elsewhere. */
 export function compact(n, base = "INR") {
   const sym = symbolOf(base);
-  const a = Math.abs(n);
+  const numVal = Number(n || 0);
+  const a = Math.abs(numVal);
   if (base === "INR") {
-    if (a >= 1e7) return `${sym}${(n / 1e7).toFixed(2)} Cr`;
-    if (a >= 1e5) return `${sym}${(n / 1e5).toFixed(2)} L`;
-    return sym + group(n, 0);
+    if (a >= 1e7) return `${sym}${(numVal / 1e7).toFixed(2)} Cr`;
+    if (a >= 1e5) return `${sym}${(numVal / 1e5).toFixed(2)} L`;
+    return sym + group(numVal, 0);
   }
-  if (a >= 1e6) return `${sym}${(n / 1e6).toFixed(2)}M`;
-  if (a >= 1e4) return `${sym}${(n / 1e3).toFixed(1)}K`;
-  return sym + group(n, 0);
+  if (a >= 1e6) return `${sym}${(numVal / 1e6).toFixed(2)}M`;
+  if (a >= 1e4) return `${sym}${(numVal / 1e3).toFixed(1)}K`;
+  return sym + group(numVal, 0);
 }
