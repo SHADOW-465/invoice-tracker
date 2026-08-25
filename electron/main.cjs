@@ -9,9 +9,9 @@ function createWindow() {
     height: 860,
     minWidth: 1080,
     minHeight: 680,
-    title: "Simon & Son — Invoice Tracker",
+    title: "Simon & Son — Invoice Ledger",
     backgroundColor: "#0d1117",
-    icon: path.join(__dirname, "../public/icon.png"),
+    icon: path.join(__dirname, "../public/icon.ico"),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -23,7 +23,7 @@ function createWindow() {
   const indexPath = path.join(__dirname, "../dist/index.html");
   mainWindow.loadFile(indexPath);
 
-  // Remove default menu bar for clean app feel
+  // Remove default menu bar for clean native app feel
   Menu.setApplicationMenu(null);
 
   mainWindow.on("closed", () => {

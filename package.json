@@ -9,13 +9,15 @@
     "build": "vite build",
     "preview": "vite preview",
     "desktop": "electron electron/main.cjs",
-    "package:desktop": "vite build && electron-builder --win --dir"
+    "package:desktop": "vite build && electron-builder --win",
+    "package:installer": "vite build && electron-builder --win nsis",
+    "package:portable": "vite build && electron-builder --win portable"
   },
   "build": {
     "appId": "com.simonandson.invoicetracker",
     "productName": "Simon & Son Invoice Ledger",
     "directories": {
-      "output": "C:\\Users\\acer\\Documents\\finance_tracker\\dist-desktop"
+      "output": "release"
     },
     "files": [
       "dist/**/*",
@@ -24,27 +26,42 @@
       "package.json"
     ],
     "win": {
+      "icon": "public/icon.ico",
       "target": [
-        "dir"
+        "nsis"
       ],
       "executableName": "Simon & Son Invoice Ledger"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "Simon & Son Invoice Ledger",
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico",
+      "installerHeaderIcon": "public/icon.ico",
+      "artifactName": "Simon & Son Invoice Ledger Setup.${ext}"
     },
     "asar": true
   },
   "dependencies": {
+    "bytenode": "^1.6.0",
     "canvas-confetti": "^1.9.4",
     "jspdf": "^3.0.4",
     "lucide-react": "^1.16.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "xlsx": "^0.18.5",
-    "bytenode": "^1.6.0"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^43.4.1",
     "electron-builder": "^26.15.3",
     "javascript-obfuscator": "^5.6.0",
+    "png-to-ico": "^3.0.2",
+    "sharp": "^0.35.3",
     "vite": "^5.4.14"
   }
 }
