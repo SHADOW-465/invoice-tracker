@@ -157,11 +157,10 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
 
         {/* KPI 3: Outstanding Receivables & Aging Risk */}
         <div
-          className={`kpi-card kpi-card-interactive ${
-            currentFilter === "Outstanding" || currentFilter === "Pending" || currentFilter === "Overdue"
+          className={`kpi-card kpi-card-interactive ${currentFilter === "Outstanding" || currentFilter === "Pending" || currentFilter === "Overdue"
               ? "kpi-card-active"
               : ""
-          }`}
+            }`}
           onClick={() =>
             handleFilterClick("Outstanding", "Filtered to Outstanding Receivables (Pending & Overdue)", "info")
           }

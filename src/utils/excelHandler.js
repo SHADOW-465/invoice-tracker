@@ -171,8 +171,8 @@ export function parseExcelFile(file) {
             const declaredNet = pickVal(row, "Net Received", "Amount Received", "Received Amount");
             const netReceived = status === "Received"
               ? (declaredNet !== ""
-                  ? (parseFloat(String(declaredNet).replace(/[^0-9.-]/g, "")) || 0)
-                  : parseFloat((numAmt - taxAmount).toFixed(2)))
+                ? (parseFloat(String(declaredNet).replace(/[^0-9.-]/g, "")) || 0)
+                : parseFloat((numAmt - taxAmount).toFixed(2)))
               : 0;
 
             // Honour an explicit due date / terms column instead of always assuming Net 30.

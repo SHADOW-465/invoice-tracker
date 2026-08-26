@@ -76,12 +76,42 @@ export function App() {
     setIsPreviewOpen(true);
   };
 
+  // Opening a SQLite ledger is asynchronous. Rendering the app before the first
+  // read completes would flash an empty ledger, which for a business's invoice
+  // records reads as "my data is gone".
+  if (store.isLoading) {
+    return (
+      <div className="app-boot">
+        <div className="app-boot-inner">
+          <div className="app-boot-mark">SS</div>
+          <div className="app-boot-title">Simon &amp; Son Invoice Ledger</div>
+          <div className="app-boot-sub">Opening your ledger…</div>
+          <div className="app-boot-bar"><span /></div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app-container">
       {/* Storage trouble is otherwise invisible: the UI keeps accepting edits that
           never reached disk. StorageGuard explains what happened and what to do -
           blocking the app when data is at risk, warning persistently when it is not. */}
       <StorageGuard store={store} onShowToast={showToast} />
+
+      {/* Shown once, after the ledger is moved into the database. */}
+      {store.migrationReport?.migrated && (
+        <div className="migration-banner" role="status">
+          <Check size={15} />
+          <span>
+            Moved <strong>{store.migrationReport.invoices}</strong> invoices into the new
+            database. Your data is now stored in a proper file with automatic backups
+            {store.migrationReport.skippedDuplicates > 0 &&
+              ` (${store.migrationReport.skippedDuplicates} duplicate invoice number${store.migrationReport.skippedDuplicates === 1 ? "" : "s"} skipped)`}.
+          </span>
+          <button className="btn btn-ghost btn-sm" onClick={store.dismissMigrationReport}>Dismiss</button>
+        </div>
+      )}
 
       {/* Navigation Header */}
       <Navbar

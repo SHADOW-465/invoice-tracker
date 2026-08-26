@@ -93,16 +93,16 @@ export function InlineStatusDropdown({
     effectiveStatus === "Received"
       ? "status-received"
       : effectiveStatus === "Overdue"
-      ? "status-overdue"
-      : effectiveStatus === "Pending"
-      ? "status-pending"
-      : effectiveStatus === "Cancelled"
-      ? "status-cancelled"
-      : effectiveStatus === "Duplicate"
-      ? "status-duplicate"
-      : effectiveStatus === "Suspended"
-      ? "status-suspended"
-      : "status-draft";
+        ? "status-overdue"
+        : effectiveStatus === "Pending"
+          ? "status-pending"
+          : effectiveStatus === "Cancelled"
+            ? "status-cancelled"
+            : effectiveStatus === "Duplicate"
+              ? "status-duplicate"
+              : effectiveStatus === "Suspended"
+                ? "status-suspended"
+                : "status-draft";
 
   const displayLabel = effectiveStatus;
 

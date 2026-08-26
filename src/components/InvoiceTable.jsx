@@ -93,7 +93,7 @@ export function InvoiceTable({
     message: "",
     confirmText: "Delete",
     variant: "danger",
-    onConfirm: () => {}
+    onConfirm: () => { }
   });
 
   // Count per status for segmented tabs
@@ -112,7 +112,7 @@ export function InvoiceTable({
       if (counts[eff] !== undefined) counts[eff] += 1;
       if (isReceivable(inv)) counts.Outstanding += 1;
       if (Number(inv.taxAmount || 0) > 0 || Number(inv.taxRate || 0) > 0 ||
-          /\btds\b|tax|withh/i.test(String(inv.remarks || ""))) {
+        /\btds\b|tax|withh/i.test(String(inv.remarks || ""))) {
         counts.TaxDeducted += 1;
       }
     });
@@ -137,21 +137,21 @@ export function InvoiceTable({
     if (amountMax !== "") n++;
     return n;
   }, [searchQuery, statusFilter, currencyFilter, monthFilter, yearFilter, clientFilter,
-      invoiceNoFilter, paymentModeFilter, agingFilter, taxFilter, settledFilter, amountMin, amountMax]);
+    invoiceNoFilter, paymentModeFilter, agingFilter, taxFilter, settledFilter, amountMin, amountMax]);
 
   // Any change to the result set must return to page 1, otherwise a filter that
   // yields 12 rows while sitting on page 20 shows an empty table.
   useEffect(() => {
     setPage(1);
   }, [searchQuery, statusFilter, currencyFilter, monthFilter, yearFilter, clientFilter,
-      invoiceNoFilter, paymentModeFilter, agingFilter, taxFilter, settledFilter,
-      amountMin, amountMax, sortField, sortDirection, pageSize]);
+    invoiceNoFilter, paymentModeFilter, agingFilter, taxFilter, settledFilter,
+    amountMin, amountMax, sortField, sortDirection, pageSize]);
 
   useEffect(() => {
     setSelectedIds(new Set());
   }, [searchQuery, statusFilter, currencyFilter, monthFilter, yearFilter, clientFilter,
-      invoiceNoFilter, paymentModeFilter, agingFilter, taxFilter, settledFilter,
-      amountMin, amountMax]);
+    invoiceNoFilter, paymentModeFilter, agingFilter, taxFilter, settledFilter,
+    amountMin, amountMax]);
 
   const totalPages = Math.max(1, Math.ceil(filteredInvoices.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -262,39 +262,39 @@ export function InvoiceTable({
 
   return (
     <div id="invoice-ledger-table" style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-        {/* A currency with no rate converts 1:1 with the dollar and silently
+      {/* A currency with no rate converts 1:1 with the dollar and silently
             overstates every invoice in it. Too consequential to leave buried
             in Settings. */}
-        {store.unratedCurrencies?.length > 0 && (
-          <div className="data-quality-notice" role="alert">
-            <AlertTriangle size={16} style={{ color: "var(--status-pending-text)", flexShrink: 0, marginTop: 1 }} />
-            <div className="data-quality-notice-body">
-              <div className="data-quality-notice-title">
-                {store.unratedCurrencies.length} currenc{store.unratedCurrencies.length === 1 ? "y has" : "ies have"} no exchange rate
-              </div>
-              <p>
-                These invoices are being counted as though 1 unit equals 1 US dollar, which
-                overstates every converted total on this screen. Set a rate in{" "}
-                <strong>Settings &rarr; Exchange Rates</strong> to correct them.
-              </p>
-              <div className="data-quality-list">
-                {store.unratedCurrencies.map((c) => (
-                  <span key={c.code} className="data-quality-chip">
-                    {c.code} · {c.count} invoice{c.count === 1 ? "" : "s"}
-                  </span>
-                ))}
-              </div>
+      {store.unratedCurrencies?.length > 0 && (
+        <div className="data-quality-notice" role="alert">
+          <AlertTriangle size={16} style={{ color: "var(--status-pending-text)", flexShrink: 0, marginTop: 1 }} />
+          <div className="data-quality-notice-body">
+            <div className="data-quality-notice-title">
+              {store.unratedCurrencies.length} currenc{store.unratedCurrencies.length === 1 ? "y has" : "ies have"} no exchange rate
+            </div>
+            <p>
+              These invoices are being counted as though 1 unit equals 1 US dollar, which
+              overstates every converted total on this screen. Set a rate in{" "}
+              <strong>Settings &rarr; Exchange Rates</strong> to correct them.
+            </p>
+            <div className="data-quality-list">
+              {store.unratedCurrencies.map((c) => (
+                <span key={c.code} className="data-quality-chip">
+                  {c.code} · {c.count} invoice{c.count === 1 ? "" : "s"}
+                </span>
+              ))}
             </div>
           </div>
-        )}
-
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.4rem 0.75rem", background: "var(--bg-surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-sm)", fontSize: "var(--text-xs)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <span style={{ color: "var(--ink-muted)", fontWeight: 600 }}>Active Ledger File:</span>
-            <strong style={{ color: "var(--brand-primary)", fontWeight: 700 }}>{store.activeWorkspace?.name || "Master Ledger"}</strong>
-            <span className="kpi-badge kpi-badge-neutral">{invoices.length} invoices</span>
-          </div>
         </div>
+      )}
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.4rem 0.75rem", background: "var(--bg-surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-sm)", fontSize: "var(--text-xs)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <span style={{ color: "var(--ink-muted)", fontWeight: 600 }}>Active Ledger File:</span>
+          <strong style={{ color: "var(--brand-primary)", fontWeight: 700 }}>{store.activeWorkspace?.name || "Master Ledger"}</strong>
+          <span className="kpi-badge kpi-badge-neutral">{invoices.length} invoices</span>
+        </div>
+      </div>
       {/* 1. Header Toolbar with Segmented Tabs & Filters */}
       <div className="ledger-header-bar">
         {/* Segmented Status Tabs */}
