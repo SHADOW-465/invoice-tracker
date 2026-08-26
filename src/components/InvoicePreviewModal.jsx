@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { X, Download, Mail, Copy, Check, Printer } from "lucide-react";
 import jsPDF from "jspdf";
-import { formatDate, formatCurrency, calculateAging } from "../utils/calculations";
+import { formatDate, formatCurrency, calculateAging, getBalanceDue } from "../utils/calculations";
 
 export function InvoicePreviewModal({
   isOpen,
@@ -19,7 +19,15 @@ export function InvoicePreviewModal({
 
   // Generate Email Reminder Copy
   const reminderEmailSubject = `${aging.isOverdue ? "URGENT: " : ""}Payment Reminder for Invoice ${invoice.invoiceNo} - ${settings.companyName}`;
-  const reminderEmailBody = `Dear ${invoice.clientName} Team,\n\nI hope this message finds you well.\n\nThis is a friendly reminder regarding Invoice ${invoice.invoiceNo} for ${formatCurrency(invoice.amount, invoice.currency)} issued on ${formatDate(invoice.raisedOn)}.\n\nStatus: ${invoice.status === "Received" ? "PAID" : aging.isOverdue ? `OVERDUE by ${aging.overdueDays} days` : `Due on ${formatDate(invoice.dueDate)}`}\nPayment Mode: ${invoice.paymentMode || "Online"}\n\nBank Payment Details:\n${settings.bankDetails || "Please remit as per invoice instructions."}\n\nPlease let us know once payment has been remitted or if you require any additional information.\n\nBest regards,\n${settings.companyName}\n${settings.companyEmail}`;
+  const statusLine =
+    invoice.status === "Received"
+      ? "PAID"
+      : invoice.status === "Partially Paid"
+      ? `PARTIALLY PAID - ${formatCurrency(getBalanceDue(invoice), invoice.currency)} still outstanding`
+      : aging.isOverdue
+      ? `OVERDUE by ${aging.overdueDays} days`
+      : `Due on ${formatDate(invoice.dueDate)}`;
+  const reminderEmailBody = `Dear ${invoice.clientName} Team,\n\nI hope this message finds you well.\n\nThis is a friendly reminder regarding Invoice ${invoice.invoiceNo} for ${formatCurrency(invoice.amount, invoice.currency)} issued on ${formatDate(invoice.raisedOn)}.\n\nStatus: ${statusLine}\nPayment Mode: ${invoice.paymentMode || "Online"}\n\nBank Payment Details:\n${settings.bankDetails || "Please remit as per invoice instructions."}\n\nPlease let us know once payment has been remitted or if you require any additional information.\n\nBest regards,\n${settings.companyName}\n${settings.companyEmail}`;
 
   const handleCopyEmail = () => {
     navigator.clipboard.writeText(`Subject: ${reminderEmailSubject}\n\n${reminderEmailBody}`);
@@ -118,16 +126,25 @@ export function InvoicePreviewModal({
       doc.text("Subtotal:", 400, y);
       doc.text(formatCurrency(invoice.amount, invoice.currency), 540, y, { align: "right" });
 
-      if (invoice.taxAmount > 0) {
-        y += 20;
-        doc.text(`Tax Withholding (${invoice.taxRate}%):`, 400, y);
-        doc.text(`-${formatCurrency(invoice.taxAmount, invoice.currency)}`, 540, y, { align: "right" });
+      if (invoice.taxAmount > 0 || invoice.status === "Partially Paid") {
+        if (invoice.taxAmount > 0) {
+          y += 20;
+          doc.text(`Tax Withholding (${invoice.taxRate}%):`, 400, y);
+          doc.text(`-${formatCurrency(invoice.taxAmount, invoice.currency)}`, 540, y, { align: "right" });
+        }
 
         y += 20;
         doc.setFont("helvetica", "bold");
         doc.setTextColor(4, 120, 87);
-        doc.text("Net Received:", 400, y);
+        doc.text("Amount Received:", 400, y);
         doc.text(formatCurrency(invoice.netReceived, invoice.currency), 540, y, { align: "right" });
+
+        if (invoice.status === "Partially Paid") {
+          y += 20;
+          doc.setTextColor(37, 99, 235);
+          doc.text("Balance Due:", 400, y);
+          doc.text(formatCurrency(getBalanceDue(invoice), invoice.currency), 540, y, { align: "right" });
+        }
       }
 
       y += 25;
@@ -206,7 +223,7 @@ export function InvoicePreviewModal({
                     #{invoice.invoiceNo}
                   </div>
                   <div style={{ fontSize: "0.85rem", color: "#64748b" }}>
-                    Status: <strong style={{ color: invoice.status === "Received" ? "#047857" : "#d97706" }}>{invoice.status.toUpperCase()}</strong>
+                    Status: <strong style={{ color: invoice.status === "Received" ? "#047857" : invoice.status === "Partially Paid" ? "#2563eb" : "#d97706" }}>{invoice.status.toUpperCase()}</strong>
                   </div>
                 </div>
               </div>
@@ -231,8 +248,8 @@ export function InvoicePreviewModal({
                     <strong>Payment Due:</strong> {formatDate(invoice.dueDate)}
                   </div>
                   {invoice.receivedOn && (
-                    <div style={{ fontSize: "0.85rem", color: "#047857" }}>
-                      <strong>Settled On:</strong> {formatDate(invoice.receivedOn)}
+                    <div style={{ fontSize: "0.85rem", color: invoice.status === "Partially Paid" ? "#2563eb" : "#047857" }}>
+                      <strong>{invoice.status === "Partially Paid" ? "Payment Received:" : "Settled On:"}</strong> {formatDate(invoice.receivedOn)}
                     </div>
                   )}
                 </div>
@@ -265,16 +282,22 @@ export function InvoicePreviewModal({
                   <span className="mono-num">{formatCurrency(invoice.amount, invoice.currency)}</span>
                 </div>
                 {invoice.taxAmount > 0 && (
-                  <>
-                    <div className="inv-totals-row" style={{ color: "#b91c1c" }}>
-                      <span>Tax Withheld ({invoice.taxRate}%):</span>
-                      <span className="mono-num">-{formatCurrency(invoice.taxAmount, invoice.currency)}</span>
-                    </div>
-                    <div className="inv-totals-row" style={{ color: "#047857", fontWeight: 700 }}>
-                      <span>Net Received:</span>
-                      <span className="mono-num">{formatCurrency(invoice.netReceived, invoice.currency)}</span>
-                    </div>
-                  </>
+                  <div className="inv-totals-row" style={{ color: "#b91c1c" }}>
+                    <span>Tax Withheld ({invoice.taxRate}%):</span>
+                    <span className="mono-num">-{formatCurrency(invoice.taxAmount, invoice.currency)}</span>
+                  </div>
+                )}
+                {(invoice.taxAmount > 0 || invoice.status === "Partially Paid") && (
+                  <div className="inv-totals-row" style={{ color: "#047857", fontWeight: 700 }}>
+                    <span>Amount Received:</span>
+                    <span className="mono-num">{formatCurrency(invoice.netReceived, invoice.currency)}</span>
+                  </div>
+                )}
+                {invoice.status === "Partially Paid" && (
+                  <div className="inv-totals-row" style={{ color: "#2563eb", fontWeight: 700 }}>
+                    <span>Balance Due:</span>
+                    <span className="mono-num">{formatCurrency(getBalanceDue(invoice), invoice.currency)}</span>
+                  </div>
                 )}
                 <div className="inv-totals-row inv-totals-grand">
                   <span>Total Amount:</span>

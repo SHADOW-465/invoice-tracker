@@ -1,11 +1,16 @@
 import React, { useMemo, useState } from "react";
 import { BarChart3, PieChart } from "lucide-react";
 import { calculateFinancialMetrics, formatCurrency, getChartYears, buildChartSeries } from "../utils/calculations";
+import { CustomSelect } from "./CustomSelect";
 
 export function AnalyticsCharts({ store }) {
   const metrics = useMemo(() => {
     return calculateFinancialMetrics(store.invoices, store.baseCurrency, store.settings?.exchangeRates);
   }, [store.invoices, store.baseCurrency, store.settings?.exchangeRates]);
+
+  const currencyEntries = useMemo(() => {
+    return Object.entries(metrics.currencyBreakdown || {});
+  }, [metrics.currencyBreakdown]);
 
   // Which year the monthly chart is showing. "all" rolls the ledger up to one bar
   // per year, which is the only readable way to view a decade of invoices.
@@ -14,6 +19,13 @@ export function AnalyticsCharts({ store }) {
   const chartYears = useMemo(() => getChartYears(metrics.monthlyData), [metrics.monthlyData]);
 
   const activeYear = chartYear === "latest" ? (chartYears[0] ?? null) : chartYear;
+
+  const yearOptions = useMemo(() => {
+    return [
+      { value: "all", label: "All Years" },
+      ...chartYears.map((y) => ({ value: String(y), label: String(y) }))
+    ];
+  }, [chartYears]);
 
   const chartSeries = useMemo(
     () => buildChartSeries(metrics.monthlyData, activeYear),
@@ -37,25 +49,21 @@ export function AnalyticsCharts({ store }) {
           <h3 className="analytics-card-title">
             <BarChart3 size={15} color="var(--brand-primary)" />
             <span>
-              {activeYear === "all" ? "Yearly" : "Monthly"} Invoiced vs Collected ({store.baseCurrency})
+              {activeYear === "all" ? "Yearly" : "Monthly"} amounts billed vs collected ({store.baseCurrency})
             </span>
           </h3>
-          <div style={{ display: "flex", gap: "0.85rem", alignItems: "center", fontSize: "0.7rem", color: "var(--ink-muted)" }}>
+          <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", fontSize: "0.7rem", color: "var(--ink-muted)" }}>
             {chartYears.length > 0 && (
-              <select
-                className="col-filter"
-                style={{ width: "auto", minWidth: 96 }}
+              <CustomSelect
                 value={activeYear === "all" ? "all" : String(activeYear)}
-                onChange={(e) => setChartYear(e.target.value === "all" ? "all" : Number(e.target.value))}
-                aria-label="Chart period"
-              >
-                <option value="all">All years</option>
-                {chartYears.map((y) => <option key={y} value={String(y)}>{y}</option>)}
-              </select>
+                onChange={(val) => setChartYear(val === "all" ? "all" : Number(val))}
+                options={yearOptions}
+                size="sm"
+              />
             )}
             <span style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
               <span style={{ width: 8, height: 8, borderRadius: 2, background: "var(--chart-bar-invoiced)" }}></span>
-              Invoiced
+              Billed
             </span>
             <span style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
               <span style={{ width: 8, height: 8, borderRadius: 2, background: "var(--chart-bar-collected)" }}></span>
@@ -63,6 +71,9 @@ export function AnalyticsCharts({ store }) {
             </span>
           </div>
         </div>
+        <p style={{ margin: "0 0 0.35rem", fontSize: "0.68rem", color: "var(--ink-muted)" }}>
+          Bar height is {store.baseCurrency} value, not invoice count. Billed uses the invoice date; collected uses the payment date.
+        </p>
 
         {chartSeries.length === 0 ? (
           <div style={{ padding: "1.5rem", textAlign: "center", color: "var(--ink-muted)", fontSize: "var(--text-xs)" }}>
@@ -71,8 +82,8 @@ export function AnalyticsCharts({ store }) {
         ) : (
           <div style={{ height: "150px", display: "flex", alignItems: "flex-end", gap: chartSeries.length > 12 ? "0.35rem" : "1.25rem", padding: "0.5rem 0" }}>
             {chartSeries.map((item, idx) => {
-              const invoicedHeight = Math.max(6, (item.invoiced / maxMonthlyVal) * 120);
-              const receivedHeight = Math.max(6, (item.received / maxMonthlyVal) * 120);
+              const invoicedScale = Math.max(6 / 120, item.invoiced / maxMonthlyVal);
+              const receivedScale = Math.max(6 / 120, item.received / maxMonthlyVal);
 
               return (
                 <div
@@ -89,23 +100,19 @@ export function AnalyticsCharts({ store }) {
                 >
                   <div style={{ display: "flex", gap: "4px", alignItems: "flex-end", height: "120px" }}>
                     <div
-                      title={`${item.label} - Invoiced: ${formatCurrency(item.invoiced, store.baseCurrency)} across ${item.count} invoices`}
+                      className="analytics-bar"
+                      title={`${item.label} billed ${formatCurrency(item.invoiced, store.baseCurrency)} (${item.count} invoices)`}
                       style={{
-                        width: "18px",
-                        height: `${invoicedHeight}px`,
-                        backgroundColor: "var(--chart-bar-invoiced)",
-                        borderRadius: "3px 3px 0 0",
-                        transition: "height 0.25s ease"
+                        "--bar-scale": invoicedScale,
+                        backgroundColor: "var(--chart-bar-invoiced)"
                       }}
                     />
                     <div
-                      title={`${item.label} - Collected: ${formatCurrency(item.received, store.baseCurrency)}`}
+                      className="analytics-bar"
+                      title={`${item.label} collected ${formatCurrency(item.received, store.baseCurrency)} (by payment date)`}
                       style={{
-                        width: "18px",
-                        height: `${receivedHeight}px`,
-                        backgroundColor: "var(--chart-bar-collected)",
-                        borderRadius: "3px 3px 0 0",
-                        transition: "height 0.25s ease"
+                        "--bar-scale": receivedScale,
+                        backgroundColor: "var(--chart-bar-collected)"
                       }}
                     />
                   </div>
@@ -146,16 +153,23 @@ export function AnalyticsCharts({ store }) {
                 fontSize: "var(--text-xs)"
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                <strong style={{ color: "var(--ink-primary)" }}>{code}</strong>
-                <span style={{ fontSize: "0.65rem", color: "var(--ink-muted)", background: "var(--bg-surface-hover)", padding: "1px 4px", borderRadius: "2px" }}>
-                  {stats.count}
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <span className={`currency-tag currency-tag-${code.toLowerCase()}`}>
+                  {code}
+                </span>
+                <span style={{ fontSize: "0.65rem", color: "var(--ink-muted)", background: "var(--bg-surface-hover)", padding: "1px 5px", borderRadius: "var(--radius-xs)" }}>
+                  {stats.count} {stats.count === 1 ? "invoice" : "invoices"}
                 </span>
               </div>
-              <div style={{ textAlign: "right" }}>
-                <span className="mono-num" style={{ fontWeight: 700, color: "var(--ink-primary)" }}>
-                  {formatCurrency(stats.total, code)}
-                </span>
+              <div className="analytics-currency-amounts">
+                <div className="analytics-currency-metric">
+                  <span className="mono-num">{formatCurrency(stats.total, code)}</span>
+                  <span className="analytics-currency-metric-label">billed</span>
+                </div>
+                <div className="analytics-currency-metric is-collected">
+                  <span className="mono-num">{formatCurrency(stats.received || 0, code)}</span>
+                  <span className="analytics-currency-metric-label">collected</span>
+                </div>
               </div>
             </div>
           ))}

@@ -84,6 +84,26 @@ export const ON_HOLD_STATUSES = ["Suspended"];
 export const isOnHold = (status) => ON_HOLD_STATUSES.includes(status);
 export const isTerminalStatus = (status) => TERMINAL_STATUSES.includes(status);
 
+// Some of the cash landed, some did not. Unlike Suspended this keeps aging - the
+// remaining balance can still go stale and needs chasing like any other
+// receivable, it is just not the full invoiced amount anymore.
+export const PARTIAL_STATUSES = ["Partially Paid"];
+export const isPartiallyPaid = (status) => PARTIAL_STATUSES.includes(status);
+
+/**
+ * What is still owed on an invoice, in its own currency.
+ *
+ * For a full settlement this is (correctly) zero. For a partial payment it is the
+ * gap between what was actually credited and the amount owed after any
+ * withholding - the number the source spreadsheet kept in "Remaining Amount".
+ */
+export function getBalanceDue(invoice) {
+  const amount = Number(invoice?.amount || 0);
+  const tax = Number(invoice?.taxAmount || 0);
+  const received = Number(invoice?.netReceived || 0);
+  return Math.max(0, Math.round((amount - tax - received) * 100) / 100);
+}
+
 /**
  * THE single source of truth for what an invoice's status actually is right now.
  *
@@ -101,6 +121,11 @@ export function getEffectiveStatus(invoice) {
   if (isTerminalStatus(raw)) return raw;
   // On-hold invoices are still receivable but are not overdue.
   if (isOnHold(raw)) return raw;
+  // Partially paid keeps its own label rather than being overwritten to "Overdue" -
+  // a user who already collected part of the invoice should not lose that context
+  // the moment the due date passes. The balance still ages into the aging buckets
+  // and overdue totals below; only the displayed label stays put.
+  if (isPartiallyPaid(raw)) return "Partially Paid";
   // An explicit Overdue flag is respected even before the due date, otherwise an
   // invoice the user flagged by hand would vanish from every tab.
   if (raw === "Overdue") return "Overdue";
@@ -110,7 +135,7 @@ export function getEffectiveStatus(invoice) {
 /** True when the invoice still represents money we expect to collect. */
 export function isReceivable(invoice) {
   const eff = getEffectiveStatus(invoice);
-  return eff === "Pending" || eff === "Overdue" || isOnHold(eff);
+  return eff === "Pending" || eff === "Overdue" || isOnHold(eff) || isPartiallyPaid(eff);
 }
 
 /**
@@ -266,23 +291,14 @@ export function calculateFinancialMetrics(invoices, baseCurrency = "USD", rates 
     currencyBreakdown[curr].total += rawAmt;
     currencyBreakdown[curr].count += 1;
 
-    // Month trend, keyed by YYYY-MM so that January 2017 and January 2026 stay
-    // separate buckets instead of being summed into one meaningless bar.
-    const period = getPeriod(inv);
-    if (!monthlyData[period.key]) {
-      monthlyData[period.key] = {
-        key: period.key,
-        month: period.month,
-        monthIndex: period.monthIndex,
-        year: period.year,
-        label: period.label,
-        invoiced: 0,
-        received: 0,
-        count: 0
-      };
-    }
-    monthlyData[period.key].invoiced += baseAmt;
-    monthlyData[period.key].count += 1;
+    // Billed amount is attributed to the invoice date. Collected cash is
+    // attributed to the payment date. Putting both on the raised-on month made
+    // "collected in August" look identical to "invoiced in April and paid later",
+    // which is why the chart read as invoice activity rather than cash.
+    const billedPeriod = getPeriod(inv);
+    const billedBucket = ensureMonthBucket(monthlyData, billedPeriod);
+    billedBucket.invoiced += baseAmt;
+    billedBucket.count += 1;
 
     totalInvoicedBase += baseAmt;
 
@@ -292,11 +308,40 @@ export function calculateFinancialMetrics(invoices, baseCurrency = "USD", rates 
       totalReceivedBase += netBase;
       totalTaxWithheldBase += taxBase;
       currencyBreakdown[curr].received += rawAmt;
-      monthlyData[period.key].received += netBase;
+      const cashPeriod = getPeriod({ raisedOn: inv.receivedOn || inv.raisedOn });
+      ensureMonthBucket(monthlyData, cashPeriod).received += netBase;
 
       if (aging.daysToCollect !== null) {
         totalCollectionDays += aging.daysToCollect;
         receivedCount += 1;
+      }
+    } else if (isPartiallyPaid(inv.status)) {
+      // Split the invoice: the part that already landed counts as collected, only
+      // the remaining balance counts as outstanding. Counting the full invoiced
+      // amount as "pending" here as well (as every other receivable status does)
+      // would double-count the cash that was already received.
+      const receivedSoFar = Number(inv.netReceived || 0);
+      const taxBase = convertToBaseCurrency(Number(inv.taxAmount || 0), curr, baseCurrency, rates);
+      const receivedBase = convertToBaseCurrency(receivedSoFar, curr, baseCurrency, rates);
+      totalReceivedBase += receivedBase;
+      totalTaxWithheldBase += taxBase;
+      currencyBreakdown[curr].received += receivedSoFar;
+      const cashPeriod = getPeriod({ raisedOn: inv.receivedOn || inv.raisedOn });
+      ensureMonthBucket(monthlyData, cashPeriod).received += receivedBase;
+
+      const balance = getBalanceDue(inv);
+      const balanceBase = convertToBaseCurrency(balance, curr, baseCurrency, rates);
+      currencyBreakdown[curr].pending += balance;
+
+      if (aging.isOverdue) {
+        totalOverdueBase += balanceBase;
+        if (aging.overdueDays <= 30) agingBuckets.days1_30 += balanceBase;
+        else if (aging.overdueDays <= 60) agingBuckets.days31_60 += balanceBase;
+        else if (aging.overdueDays <= 90) agingBuckets.days61_90 += balanceBase;
+        else agingBuckets.days90Plus += balanceBase;
+      } else {
+        totalPendingBase += balanceBase;
+        agingBuckets.current += balanceBase;
       }
     } else if (isReceivable(inv)) {
       currencyBreakdown[curr].pending += rawAmt;
@@ -368,6 +413,22 @@ export function getClientColor(clientName = "") {
 }
 
 
+
+function ensureMonthBucket(monthlyData, period) {
+  if (!monthlyData[period.key]) {
+    monthlyData[period.key] = {
+      key: period.key,
+      month: period.month,
+      monthIndex: period.monthIndex,
+      year: period.year,
+      label: period.label,
+      invoiced: 0,
+      received: 0,
+      count: 0
+    };
+  }
+  return monthlyData[period.key];
+}
 
 /**
  * Resolve the accounting period an invoice belongs to, from its raised date.

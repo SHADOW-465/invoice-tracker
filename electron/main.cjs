@@ -75,6 +75,9 @@ function registerLedgerHandlers() {
   handle("ledger:deleteWorkspace", ({ id }) => ledger.deleteWorkspace(id));
   handle("ledger:saveClients", ({ clients }) => ledger.saveClients(clients));
   handle("ledger:saveSettings", ({ settings }) => ledger.saveSettings(settings));
+  handle("ledger:appendChangeEvents", ({ events }) => ledger.appendChangeEvents(events));
+  handle("ledger:listChangeEvents", ({ workspaceId }) => ledger.listChangeEvents(workspaceId));
+  handle("ledger:markChangeEventUndone", ({ id, undone }) => ledger.markChangeEventUndone(id, undone));
   handle("ledger:migrate", ({ payload }) => ledger.migrateFromLocalStorage(payload));
   handle("ledger:backup", ({ reason }) => ledger.backup(reason || "manual"));
   handle("ledger:listBackups", () => ledger.listBackups());

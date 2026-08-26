@@ -20,7 +20,8 @@ export const STORAGE_KEYS = {
   SETTINGS: "apex_finance_settings_v1",
   THEME: "apex_finance_theme_v1",
   BASE_CURRENCY: "apex_finance_base_currency_v1",
-  LAST_BACKUP: "apex_finance_last_backup_v1"
+  LAST_BACKUP: "apex_finance_last_backup_v1",
+  CHANGE_EVENTS: "apex_finance_change_events_v1"
 };
 
 const QUARANTINE_PREFIX = "apex_finance_QUARANTINE_";

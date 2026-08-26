@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import { X, Settings, Building2, Save, Trash2, RotateCcw, AlertTriangle, ShieldCheck } from "lucide-react";
 import { CURRENCIES, PAYMENT_TERMS } from "../types/finance";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { DatabasePanel } from "./DatabasePanel";
 
 export function SettingsModal({
   isOpen,
@@ -19,7 +18,7 @@ export function SettingsModal({
     message: "",
     confirmText: "",
     variant: "danger",
-    onConfirm: () => { }
+    onConfirm: () => {}
   });
 
   useEffect(() => {
@@ -187,7 +186,9 @@ export function SettingsModal({
                             onChange={(e) => handleRateChange(code, e.target.value)}
                             aria-label={`Units of ${code} per US dollar`}
                           />
-                          <span className="rate-cell-unit">{code}</span>
+                          <span className={`currency-badge currency-badge-${code.toLowerCase()}`}>
+                            {code}
+                          </span>
                         </div>
                       );
                     })}
@@ -230,12 +231,6 @@ export function SettingsModal({
                     value={form.bankDetails || ""}
                     onChange={(e) => setForm((p) => ({ ...p, bankDetails: e.target.value }))}
                   />
-                </div>
-
-                {/* Where the ledger lives, and how to get it back. */}
-                <div className="form-group col-span-2" style={{ marginTop: "0.5rem", paddingTop: "0.85rem", borderTop: "1px solid var(--border-subtle)" }}>
-                  <label className="form-label">Storage &amp; Backups</label>
-                  <DatabasePanel store={store} onShowToast={onShowToast} />
                 </div>
 
                 {/* Data & Storage Management (Moved safely from navbar) */}

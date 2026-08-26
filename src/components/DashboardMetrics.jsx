@@ -13,7 +13,8 @@ import {
   Percent,
   Timer
 } from "lucide-react";
-import { calculateFinancialMetrics, formatCurrency, getEffectiveStatus, getChartYears, buildChartSeries } from "../utils/calculations";
+import { calculateFinancialMetrics, formatCurrency, getEffectiveStatus, calculateAging, isPartiallyPaid, isOnHold, getChartYears, buildChartSeries } from "../utils/calculations";
+import { CustomSelect } from "./CustomSelect";
 
 export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onShowToast }) {
   const metrics = useMemo(() => {
@@ -21,7 +22,7 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
   }, [store.invoices, store.baseCurrency, store.settings?.exchangeRates]);
 
   const currencyEntries = useMemo(() => {
-    return Object.entries(metrics.currencyBreakdown);
+    return Object.entries(metrics.currencyBreakdown || {});
   }, [metrics.currencyBreakdown]);
 
   // Year-aware, exactly like the standalone analytics chart. Without this the
@@ -30,6 +31,13 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
 
   const chartYears = useMemo(() => getChartYears(metrics.monthlyData), [metrics.monthlyData]);
   const activeYear = chartYear === "latest" ? (chartYears[0] ?? null) : chartYear;
+
+  const yearOptions = useMemo(() => {
+    return [
+      { value: "all", label: "All Years" },
+      ...chartYears.map((y) => ({ value: String(y), label: String(y) }))
+    ];
+  }, [chartYears]);
 
   const chartSeries = useMemo(
     () => buildChartSeries(metrics.monthlyData, activeYear),
@@ -58,7 +66,13 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
   // badge reported different overdue totals.
   const countedInvoices = store.invoices.length - (metrics.voidedCount || 0);
   const settledCount = store.invoices.filter((i) => getEffectiveStatus(i) === "Received").length;
-  const overdueCount = store.invoices.filter((i) => getEffectiveStatus(i) === "Overdue").length;
+  const overdueCount = store.invoices.filter((i) => {
+    if (isOnHold(i.status)) return false;
+    if (getEffectiveStatus(i) === "Overdue") return true;
+    // Partially Paid keeps its own label, but a past-due remaining balance
+    // still belongs in the overdue count on this card.
+    return isPartiallyPaid(i.status) && calculateAging(i).isOverdue;
+  }).length;
 
   const currentFilter = store.statusFilter;
 
@@ -157,10 +171,11 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
 
         {/* KPI 3: Outstanding Receivables & Aging Risk */}
         <div
-          className={`kpi-card kpi-card-interactive ${currentFilter === "Outstanding" || currentFilter === "Pending" || currentFilter === "Overdue"
+          className={`kpi-card kpi-card-interactive ${
+            currentFilter === "Outstanding" || currentFilter === "Pending" || currentFilter === "Overdue"
               ? "kpi-card-active"
               : ""
-            }`}
+          }`}
           onClick={() =>
             handleFilterClick("Outstanding", "Filtered to Outstanding Receivables (Pending & Overdue)", "info")
           }
@@ -315,24 +330,20 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
           <div className="analytics-card">
             <div className="analytics-card-header">
               <span className="analytics-card-title">
-                {activeYear === "all" ? "Yearly" : "Monthly"} Velocity: Invoiced vs Collected
+                {activeYear === "all" ? "Yearly" : "Monthly"} amounts: billed vs collected
               </span>
               <div className="analytics-legend">
                 {chartYears.length > 0 && (
-                  <select
-                    className="col-filter"
-                    style={{ width: "auto", minWidth: 92 }}
+                  <CustomSelect
                     value={activeYear === "all" ? "all" : String(activeYear)}
-                    onChange={(e) => setChartYear(e.target.value === "all" ? "all" : Number(e.target.value))}
-                    aria-label="Chart period"
-                  >
-                    <option value="all">All years</option>
-                    {chartYears.map((y) => <option key={y} value={String(y)}>{y}</option>)}
-                  </select>
+                    onChange={(val) => setChartYear(val === "all" ? "all" : Number(val))}
+                    options={yearOptions}
+                    size="sm"
+                  />
                 )}
                 <span className="analytics-legend-item">
                   <span className="analytics-dot" style={{ background: "var(--chart-bar-invoiced)" }} />
-                  Invoiced
+                  Billed
                 </span>
                 <span className="analytics-legend-item">
                   <span className="analytics-dot" style={{ background: "var(--chart-bar-collected)" }} />
@@ -340,14 +351,17 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
                 </span>
               </div>
             </div>
+            <p style={{ margin: "0 0 0.5rem", fontSize: "0.68rem", color: "var(--ink-muted)" }}>
+              Bar height is {store.baseCurrency} value, not invoice count. Billed uses the invoice date; collected uses the payment date.
+            </p>
 
             {chartSeries.length === 0 ? (
               <div className="analytics-empty">No invoice activity recorded</div>
             ) : (
               <div className="analytics-chart-container">
                 {chartSeries.map((item, idx) => {
-                  const invoicedHeight = Math.max(6, (item.invoiced / maxMonthlyVal) * 110);
-                  const receivedHeight = Math.max(6, (item.received / maxMonthlyVal) * 110);
+                  const invoicedScale = Math.max(6 / 110, item.invoiced / maxMonthlyVal);
+                  const receivedScale = Math.max(6 / 110, item.received / maxMonthlyVal);
 
                   return (
                     <div key={idx} className="analytics-chart-col">
@@ -355,18 +369,18 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
                         <div
                           className="analytics-bar"
                           style={{
-                            height: `${invoicedHeight}px`,
+                            "--bar-scale": invoicedScale,
                             backgroundColor: "var(--chart-bar-invoiced)"
                           }}
-                          title={`${item.label} - Invoiced: ${formatCurrency(item.invoiced, store.baseCurrency)} across ${item.count} invoices`}
+                          title={`${item.label} billed ${formatCurrency(item.invoiced, store.baseCurrency)} (${item.count} invoices)`}
                         />
                         <div
                           className="analytics-bar"
                           style={{
-                            height: `${receivedHeight}px`,
+                            "--bar-scale": receivedScale,
                             backgroundColor: "var(--chart-bar-collected)"
                           }}
-                          title={`${item.label} - Collected: ${formatCurrency(item.received, store.baseCurrency)}`}
+                          title={`${item.label} collected ${formatCurrency(item.received, store.baseCurrency)} (by payment date)`}
                         />
                       </div>
                       <span className="analytics-chart-label">{item.label}</span>
@@ -397,8 +411,15 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
                       {stats.count} {stats.count === 1 ? "invoice" : "invoices"}
                     </span>
                   </div>
-                  <div className="mono-num" style={{ fontWeight: 700, color: "var(--ink-primary)", fontSize: "var(--text-sm)" }}>
-                    {formatCurrency(stats.total, code)}
+                  <div className="analytics-currency-amounts">
+                    <div className="analytics-currency-metric">
+                      <span className="mono-num">{formatCurrency(stats.total, code)}</span>
+                      <span className="analytics-currency-metric-label">billed</span>
+                    </div>
+                    <div className="analytics-currency-metric is-collected">
+                      <span className="mono-num">{formatCurrency(stats.received || 0, code)}</span>
+                      <span className="analytics-currency-metric-label">collected</span>
+                    </div>
                   </div>
                 </div>
               ))}

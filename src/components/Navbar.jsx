@@ -9,7 +9,8 @@ import {
   Settings,
   ReceiptText,
   FolderKanban,
-  FileSpreadsheet
+  FileSpreadsheet,
+  History
 } from "lucide-react";
 import { CURRENCIES } from "../types/finance";
 import { exportToExcel, parseExcelFile } from "../utils/excelHandler";
@@ -21,6 +22,9 @@ export function Navbar({
   onOpenNewInvoice,
   onOpenClients,
   onOpenSettings,
+  onOpenHistory,
+  appView = "ledger",
+  onGoToLedger,
   onShowToast
 }) {
   const fileInputRef = useRef(null);
@@ -28,7 +32,8 @@ export function Navbar({
     isOpen: false,
     file: null,
     sheetName: "",
-    parsedInvoices: []
+    parsedInvoices: [],
+    parsedClients: []
   });
 
   const activeName = store.activeWorkspace?.name || "Master Ledger";
@@ -59,7 +64,8 @@ export function Navbar({
         isOpen: true,
         file,
         sheetName: result.sheetName || "",
-        parsedInvoices: invoices
+        parsedInvoices: invoices,
+        parsedClients: result.parsedClients || []
       });
     } catch (err) {
       console.error("Import error", err);
@@ -70,7 +76,10 @@ export function Navbar({
   };
 
   const handleConfirmImport = (invoices, mode, workspaceName) => {
-    store.importInvoices(invoices, mode, workspaceName);
+    store.importInvoices(invoices, mode, workspaceName, importModalData.parsedClients, {
+      fileName: importModalData.file?.name || "",
+      mode
+    });
     if (mode === "new_workspace") {
       onShowToast(`Loaded "${workspaceName}" with ${invoices.length} invoices!`, "success");
     } else {
@@ -104,6 +113,7 @@ export function Navbar({
       onShowToast(`Created new blank ledger "${newName}"`, "info");
     } else {
       store.switchWorkspace(val);
+      if (typeof onGoToLedger === "function") onGoToLedger();
       const target = store.workspaces?.find((w) => w.id === val);
       onShowToast(`Switched to ledger "${target?.name || 'Ledger'}"`, "info");
     }
@@ -120,7 +130,14 @@ export function Navbar({
             </div>
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <h1 className="brand-title">Invoice Tracker</h1>
+                <h1
+                  className="brand-title"
+                  onClick={onGoToLedger}
+                  style={{ cursor: onGoToLedger ? "pointer" : "default" }}
+                  title="Back to ledger"
+                >
+                  Invoice Tracker
+                </h1>
                 {/* Multi-Ledger / Workspace Selector */}
                 <div style={{ display: "inline-flex", alignItems: "center" }} title="Switch between Excel ledgers">
                   <CustomSelect
@@ -196,6 +213,15 @@ export function Navbar({
               <span>Clients</span>
             </button>
 
+            <button
+              className={`btn btn-secondary btn-sm${appView === "history" ? " history-nav-active" : ""}`}
+              onClick={onOpenHistory}
+              title="Invoice and import history"
+            >
+              <History size={13} />
+              <span>History</span>
+            </button>
+
             {/* Settings */}
             <button
               className="btn btn-secondary btn-sm btn-icon"
@@ -230,7 +256,7 @@ export function Navbar({
       {/* Import Modal */}
       <ImportModal
         isOpen={importModalData.isOpen}
-        onClose={() => setImportModalData({ isOpen: false, file: null, sheetName: "", parsedInvoices: [] })}
+        onClose={() => setImportModalData({ isOpen: false, file: null, sheetName: "", parsedInvoices: [], parsedClients: [] })}
         file={importModalData.file}
         sheetName={importModalData.sheetName}
         parsedInvoices={importModalData.parsedInvoices}

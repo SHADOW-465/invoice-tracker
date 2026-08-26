@@ -80,6 +80,24 @@ CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT
 );
+
+CREATE TABLE IF NOT EXISTS change_events (
+  id            TEXT PRIMARY KEY,
+  workspace_id  TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  action        TEXT NOT NULL,
+  invoice_id    TEXT,
+  invoice_no    TEXT,
+  client_name   TEXT,
+  summary       TEXT NOT NULL,
+  before_json   TEXT,
+  after_json    TEXT,
+  batch_id      TEXT,
+  undone        INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_change_events_ws_time
+  ON change_events(workspace_id, created_at DESC);
 `;
 
 /* ------------------------------------------------------------------- open */
@@ -98,8 +116,16 @@ function init(userDataPath) {
   db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA synchronous = NORMAL");
   db.exec(SCHEMA);
+  ensureChangeEventColumns();
 
   return { path: dbPath, backupDir };
+}
+
+function ensureChangeEventColumns() {
+  const cols = db.prepare("PRAGMA table_info(change_events)").all().map((c) => c.name);
+  if (!cols.includes("undone")) {
+    db.exec("ALTER TABLE change_events ADD COLUMN undone INTEGER NOT NULL DEFAULT 0");
+  }
 }
 
 const isReady = () => db !== null;
@@ -452,8 +478,101 @@ function close() {
   if (db) { db.close(); db = null; }
 }
 
+const toEvent = (r) => ({
+  id: r.id,
+  workspaceId: r.workspace_id,
+  createdAt: r.created_at,
+  action: r.action,
+  invoiceId: r.invoice_id || null,
+  invoiceNo: r.invoice_no || "",
+  clientName: r.client_name || "",
+  summary: r.summary,
+  before: parseJson(r.before_json, null),
+  after: parseJson(r.after_json, null),
+  batchId: r.batch_id || null,
+  undone: Number(r.undone) === 1
+});
+
+function parseJson(raw, fallback) {
+  if (raw === null || raw === undefined || raw === "") return fallback;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function appendChangeEvents(events) {
+  const list = Array.isArray(events) ? events : [events];
+  if (!list.length) return { appended: 0 };
+  const up = db.prepare(`
+    INSERT INTO change_events (
+      id, workspace_id, created_at, action, invoice_id, invoice_no, client_name,
+      summary, before_json, after_json, batch_id, undone
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(id) DO NOTHING
+  `);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    for (const ev of list) {
+      up.run(
+        String(ev.id),
+        String(ev.workspaceId || "default"),
+        String(ev.createdAt || new Date().toISOString()),
+        String(ev.action || "updated"),
+        ev.invoiceId ? String(ev.invoiceId) : null,
+        String(ev.invoiceNo || ""),
+        String(ev.clientName || ""),
+        String(ev.summary || ""),
+        ev.before == null ? null : JSON.stringify(ev.before),
+        ev.after == null ? null : JSON.stringify(ev.after),
+        ev.batchId ? String(ev.batchId) : null,
+        ev.undone ? 1 : 0
+      );
+    }
+    const workspaces = [...new Set(list.map((e) => String(e.workspaceId || "default")))];
+    for (const ws of workspaces) pruneChangeEvents(ws);
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+  return { appended: list.length };
+}
+
+function pruneChangeEvents(workspaceId, cap = 5000) {
+  const cutoff = db.prepare(`
+    SELECT created_at FROM change_events
+    WHERE workspace_id = ?
+    ORDER BY created_at DESC
+    LIMIT 1 OFFSET ?
+  `).get(String(workspaceId), cap - 1);
+  if (!cutoff) return;
+  db.prepare(`
+    DELETE FROM change_events
+    WHERE workspace_id = ? AND created_at < ?
+  `).run(String(workspaceId), cutoff.created_at);
+}
+
+function markChangeEventUndone(id, undone = true) {
+  db.prepare("UPDATE change_events SET undone = ? WHERE id = ?").run(undone ? 1 : 0, String(id));
+  return { ok: true };
+}
+
+function listChangeEvents(workspaceId) {
+  const rows = workspaceId
+    ? db.prepare(`
+        SELECT * FROM change_events
+        WHERE workspace_id = ?
+        ORDER BY created_at DESC
+      `).all(String(workspaceId))
+    : db.prepare("SELECT * FROM change_events ORDER BY created_at DESC").all();
+  return rows.map(toEvent);
+}
+
 module.exports = {
   init, isReady, readAll, applyInvoiceChanges, replaceInvoices,
   saveWorkspaceMeta, deleteWorkspace, saveClients, saveSettings,
-  migrateFromLocalStorage, backup, listBackups, restoreBackup, stats, close
+  migrateFromLocalStorage, backup, listBackups, restoreBackup, stats, close,
+  appendChangeEvents, listChangeEvents, markChangeEventUndone
 };

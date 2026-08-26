@@ -25,3 +25,9 @@ release/
 dist-desktop/
 *.jsc
 
+.gstack/
+.impeccable/
+.vercel/
+backups/
+*.exe
+Revenue & Pipeline*.xlsx

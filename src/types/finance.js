@@ -94,11 +94,11 @@ export const INITIAL_INVOICES = [
 ];
 
 export const INITIAL_CLIENTS = [
-  { id: "c-1", name: "A", email: "billing@client-a.com", defaultCurrency: "USD", defaultTerms: "Net 30", notes: "Strategic technology partner" },
-  { id: "c-2", name: "B", email: "accounts@client-b.ch", defaultCurrency: "CHF", defaultTerms: "Net 30", notes: "Swiss consulting client" },
-  { id: "c-3", name: "V", email: "finance@client-v.com", defaultCurrency: "USD", defaultTerms: "Net 30", notes: "15% withholding tax applicable" },
-  { id: "c-4", name: "D", email: "payments@client-d.co.uk", defaultCurrency: "GBP", defaultTerms: "Net 30", notes: "UK digital agency" },
-  { id: "c-5", name: "E", email: "invoices@client-e.co.uk", defaultCurrency: "GBP", defaultTerms: "Net 30", notes: "E-commerce platform services" }
+  { id: "c-1", name: "A", contactPerson: "", email: "billing@client-a.com", defaultCurrency: "USD", defaultTerms: "Net 30", notes: "Strategic technology partner" },
+  { id: "c-2", name: "B", contactPerson: "", email: "accounts@client-b.ch", defaultCurrency: "CHF", defaultTerms: "Net 30", notes: "Swiss consulting client" },
+  { id: "c-3", name: "V", contactPerson: "", email: "finance@client-v.com", defaultCurrency: "USD", defaultTerms: "Net 30", notes: "15% withholding tax applicable" },
+  { id: "c-4", name: "D", contactPerson: "", email: "payments@client-d.co.uk", defaultCurrency: "GBP", defaultTerms: "Net 30", notes: "UK digital agency" },
+  { id: "c-5", name: "E", contactPerson: "", email: "invoices@client-e.co.uk", defaultCurrency: "GBP", defaultTerms: "Net 30", notes: "E-commerce platform services" }
 ];
 
 export const CURRENCIES = [
@@ -112,9 +112,12 @@ export const CURRENCIES = [
   { code: "ZAR", symbol: "R ", name: "South African Rand", rateToBase: 0.0545 },
   { code: "NZD", symbol: "NZ$", name: "New Zealand Dollar", rateToBase: 0.595 },
   { code: "MXN", symbol: "MX$", name: "Mexican Peso", rateToBase: 0.0495 },
+  { code: "PESO", symbol: "MX$", name: "Mexican Peso", rateToBase: 0.0495 },
   { code: "CAD", symbol: "CA$", name: "Canadian Dollar", rateToBase: 0.74 },
   { code: "AUD", symbol: "AU$", name: "Australian Dollar", rateToBase: 0.66 },
-  { code: "SGD", symbol: "SG$", name: "Singapore Dollar", rateToBase: 0.75 }
+  { code: "SGD", symbol: "SG$", name: "Singapore Dollar", rateToBase: 0.75 },
+  { code: "JPY", symbol: "¥", name: "Japanese Yen", rateToBase: 0.0067 },
+  { code: "CNY", symbol: "¥", name: "Chinese Yuan", rateToBase: 0.14 }
 ];
 
 export const PAYMENT_MODES = [
@@ -137,13 +140,13 @@ export const PAYMENT_TERMS = [
   { label: "Custom Due Date", days: null }
 ];
 
-// Selectable collection statuses.
-//
-// "Partially Paid" was removed: nothing in the app records how much was partially
-// paid, so choosing it changed no number and the invoice simply rendered as Pending
-// or Overdue. Re-add it only alongside a part-payment amount field.
+// Selectable collection statuses. "Partially Paid" records the actual amount
+// received via netReceived and derives its remaining balance from that - it is
+// set through the Record Payment dialog, not picked bare, because it needs an
+// amount to mean anything.
 export const STATUS_TYPES = [
   { value: "Received", label: "Received", color: "var(--status-received)" },
+  { value: "Partially Paid", label: "Partially Paid", color: "var(--status-partial)" },
   { value: "Pending", label: "Pending", color: "var(--status-pending)" },
   { value: "Overdue", label: "Overdue", color: "var(--status-overdue)" },
   { value: "Suspended", label: "Suspended (on hold)", color: "var(--status-pending)" },

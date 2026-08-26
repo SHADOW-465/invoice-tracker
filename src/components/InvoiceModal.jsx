@@ -3,6 +3,7 @@ import { X, Sparkles, AlertCircle } from "lucide-react";
 import { CURRENCIES, PAYMENT_MODES, PAYMENT_TERMS, STATUS_TYPES } from "../types/finance";
 import { getMonthName, calculateDueDate } from "../utils/calculations";
 import { CustomDatePicker } from "./CustomDatePicker";
+import { ClientSuggest } from "./ClientSuggest";
 
 export function InvoiceModal({
   isOpen,
@@ -26,6 +27,7 @@ export function InvoiceModal({
     status: "Pending",
     paymentTerms: "Net 30",
     dueDate: "",
+    receivedOn: "",
     taxRate: "0",
     remarks: ""
   });
@@ -46,6 +48,7 @@ export function InvoiceModal({
           status: initialData.status || "Pending",
           paymentTerms: initialData.paymentTerms || "Net 30",
           dueDate: initialData.dueDate || "",
+          receivedOn: initialData.receivedOn || "",
           taxRate: initialData.taxRate !== undefined ? String(initialData.taxRate) : "0",
           remarks: initialData.remarks || ""
         });
@@ -64,6 +67,7 @@ export function InvoiceModal({
           status: "Pending",
           paymentTerms: "Net 30",
           dueDate: due,
+          receivedOn: "",
           taxRate: "0",
           remarks: ""
         });
@@ -94,21 +98,32 @@ export function InvoiceModal({
     }));
   };
 
+  const invoiceClientNames = (existingInvoices || []).map((i) => i.clientName);
+
+  const applyTerms = (prev, term) => {
+    let due = prev.dueDate;
+    if (term.includes("15")) due = calculateDueDate(prev.raisedOn, 15);
+    else if (term.includes("30")) due = calculateDueDate(prev.raisedOn, 30);
+    else if (term.includes("45")) due = calculateDueDate(prev.raisedOn, 45);
+    else if (term.includes("60")) due = calculateDueDate(prev.raisedOn, 60);
+    else if (term.includes("0") || term.includes("Immediately")) due = calculateDueDate(prev.raisedOn, 0);
+    return { paymentTerms: term, dueDate: due };
+  };
+
+  const handleClientPick = (name, client) => {
+    setErrorMessage("");
+    setFormData((prev) => {
+      const next = { ...prev, clientName: name };
+      if (client?.defaultCurrency) next.currency = client.defaultCurrency;
+      if (client?.defaultTerms) Object.assign(next, applyTerms(prev, client.defaultTerms));
+      return next;
+    });
+  };
+
   const handleTermsChange = (e) => {
     setErrorMessage("");
     const term = e.target.value;
-    let due = formData.dueDate;
-    if (term.includes("15")) due = calculateDueDate(formData.raisedOn, 15);
-    else if (term.includes("30")) due = calculateDueDate(formData.raisedOn, 30);
-    else if (term.includes("45")) due = calculateDueDate(formData.raisedOn, 45);
-    else if (term.includes("60")) due = calculateDueDate(formData.raisedOn, 60);
-    else if (term.includes("0") || term.includes("Immediately")) due = calculateDueDate(formData.raisedOn, 0);
-
-    setFormData(prev => ({
-      ...prev,
-      paymentTerms: term,
-      dueDate: due
-    }));
+    setFormData((prev) => ({ ...prev, ...applyTerms(prev, term) }));
   };
 
   const handleSubmit = (e) => {
@@ -144,12 +159,25 @@ export function InvoiceModal({
     const taxAmt = (amt * taxR) / 100;
     const netRec = amt - taxAmt;
 
+    let netReceived = 0;
+    const isPaid = formData.status === "Received" || formData.status === "Partially Paid";
+    if (formData.status === "Received") {
+      netReceived = parseFloat(netRec.toFixed(2));
+    } else if (formData.status === "Partially Paid") {
+      // Editing other fields must not wipe a recorded partial. Recording a new
+      // payment still goes through Mark Paid / Record Payment.
+      netReceived = parseFloat(Number(initialData?.netReceived || 0).toFixed(2));
+    }
+
     onSave({
       ...formData,
       amount: amt,
       taxRate: taxR,
       taxAmount: parseFloat(taxAmt.toFixed(2)),
-      netReceived: formData.status === "Received" ? parseFloat(netRec.toFixed(2)) : 0
+      netReceived,
+      receivedOn: isPaid
+        ? (formData.receivedOn || new Date().toISOString().split("T")[0])
+        : ""
     });
     onClose();
   };
@@ -202,20 +230,14 @@ export function InvoiceModal({
               {/* Client Name */}
               <div className="form-group">
                 <label className="form-label">Client Name *</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  list="clients-datalist"
-                  placeholder="Client name / company"
+                <ClientSuggest
                   value={formData.clientName}
-                  onChange={(e) => setFormData(p => ({ ...p, clientName: e.target.value }))}
-                  required
+                  onChange={(name) => setFormData((p) => ({ ...p, clientName: name }))}
+                  onPick={handleClientPick}
+                  clients={clients}
+                  invoiceNames={invoiceClientNames}
+                  placeholder="Start typing a client name"
                 />
-                <datalist id="clients-datalist">
-                  {clients.map(c => (
-                    <option key={c.id} value={c.name} />
-                  ))}
-                </datalist>
               </div>
 
               {/* Amount */}
@@ -320,15 +342,38 @@ export function InvoiceModal({
                 <select
                   className="form-select"
                   value={formData.status}
-                  onChange={(e) => setFormData(p => ({ ...p, status: e.target.value }))}
+                  onChange={(e) => {
+                    const status = e.target.value;
+                    setFormData((p) => ({
+                      ...p,
+                      status,
+                      receivedOn:
+                        status === "Received" || status === "Partially Paid"
+                          ? p.receivedOn || new Date().toISOString().split("T")[0]
+                          : p.receivedOn
+                    }));
+                  }}
                 >
-                  {STATUS_TYPES.map(s => (
+                  {STATUS_TYPES.filter(
+                    (s) => s.value !== "Partially Paid" || formData.status === "Partially Paid"
+                  ).map((s) => (
                     <option key={s.value} value={s.value}>
                       {s.label}
                     </option>
                   ))}
                 </select>
               </div>
+
+              {(formData.status === "Received" || formData.status === "Partially Paid") && (
+                <div className="form-group">
+                  <label className="form-label">Settled / Received on</label>
+                  <CustomDatePicker
+                    value={formData.receivedOn}
+                    onChange={(val) => setFormData((p) => ({ ...p, receivedOn: val }))}
+                    placeholder="Select payment date"
+                  />
+                </div>
+              )}
 
               {/* Remarks */}
               <div className="form-group col-span-2">

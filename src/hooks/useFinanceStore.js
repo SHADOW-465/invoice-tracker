@@ -1,24 +1,6 @@
 // State Management & LocalStorage Persistence Hook
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { INITIAL_INVOICES, INITIAL_CLIENTS } from "../types/finance";
-import {
-  loadLedger,
-  persistInvoiceChanges,
-  persistReplaceInvoices,
-  persistWorkspaceMeta,
-  removeWorkspace as removeWorkspaceRow,
-  persistClients,
-  persistSettings,
-  snapshotInvoices,
-  diffInvoices,
-  isDesktop,
-  backendName,
-  makeBackup,
-  listBackups,
-  restoreBackup as restoreBackupFile,
-  revealBackups,
-  ledgerStats
-} from "../utils/ledgerStore";
 import {
   STORAGE_KEYS,
   safeRead,
@@ -44,6 +26,23 @@ import {
   getAvailableYears,
   getUsedCurrencies
 } from "../utils/calculations";
+import {
+  cloneInvoice,
+  cloneInvoices,
+  invoicesEquivalent,
+  makeHistoryEvent,
+  summariseCreated,
+  summariseUpdated,
+  summarisePaid,
+  summarisePartial,
+  summariseDuplicated,
+  summariseDeleted,
+  summariseImported,
+  actionForFieldUpdate,
+  pruneEvents,
+  HISTORY_CAP
+} from "../utils/changeHistory";
+import { loadLocalChangeEvents, persistChangeEvents, loadChangeEvents, persistChangeEventUndone } from "../utils/ledgerStore";
 
 const DEFAULT_SETTINGS = {
   companyName: "Simon & Son Global",
@@ -68,9 +67,12 @@ const DEFAULT_SETTINGS = {
     ZAR: 0.0545,
     NZD: 0.595,
     MXN: 0.0495,
+    PESO: 0.0495,
     CAD: 0.74,
     AUD: 0.66,
-    SGD: 0.75
+    SGD: 0.75,
+    JPY: 0.0067,
+    CNY: 0.14
   }
 };
 
@@ -78,27 +80,74 @@ const freshWorkspace = (invoices = INITIAL_INVOICES) => ([
   { id: "default", name: "Master Ledger", invoices, createdAt: new Date().toISOString() }
 ]);
 
+/**
+ * Load the ledger without ever destroying what is already on disk.
+ *
+ * A damaged read used to fall through to the bundled sample invoices, which the
+ * persist effect then wrote straight over the damaged original - turning a
+ * recoverable problem into permanent, silent data loss. Now a damaged read puts
+ * the app into recovery mode and every write is blocked until the user decides.
+ */
+function hydrateWorkspaces() {
+  const read = safeRead(STORAGE_KEYS.WORKSPACES, isValidWorkspaces);
+
+  if (read.status === "ok") {
+    return { workspaces: read.value, storage: { status: "ok" } };
+  }
+
+  if (read.status === "corrupt") {
+    const quarantineKey = quarantine(STORAGE_KEYS.WORKSPACES, read.raw);
+    return {
+      // Show an empty ledger, never sample data - sample data in a real business
+      // ledger reads as "my invoices turned into someone else's".
+      workspaces: freshWorkspace([]),
+      storage: {
+        status: "corrupt",
+        quarantineKey,
+        rawBytes: read.raw ? read.raw.length : 0,
+        detail: read.error ? read.error.message : "Saved data could not be read"
+      }
+    };
+  }
+
+  if (read.status === "unavailable") {
+    return {
+      workspaces: freshWorkspace([]),
+      storage: {
+        status: "unavailable",
+        detail: read.error ? read.error.message : "Local storage is not accessible"
+      }
+    };
+  }
+
+  // Nothing stored yet: first run, or a legacy single-ledger install to migrate.
+  const legacy = safeRead(STORAGE_KEYS.INVOICES);
+  if (legacy.status === "ok" && Array.isArray(legacy.value) && legacy.value.length) {
+    return { workspaces: freshWorkspace(legacy.value), storage: { status: "ok" } };
+  }
+  if (legacy.status === "corrupt") {
+    const quarantineKey = quarantine(STORAGE_KEYS.INVOICES, legacy.raw);
+    return {
+      workspaces: freshWorkspace([]),
+      storage: {
+        status: "corrupt",
+        quarantineKey,
+        rawBytes: legacy.raw ? legacy.raw.length : 0,
+        detail: "Saved data from an earlier version could not be read"
+      }
+    };
+  }
+
+  return { workspaces: freshWorkspace(INITIAL_INVOICES), storage: { status: "ok" } };
+}
+
 export function useFinanceStore() {
-  /*
-   * The ledger now lives in SQLite on the desktop, which means loading it is
-   * asynchronous. The interface renders a loading state until the first read
-   * completes rather than rendering an empty ledger that would look like data loss.
-   */
-  const [isLoading, setIsLoading] = useState(true);
+  // Hydrate once, capturing both the data and how healthy storage was.
+  const [initial] = useState(hydrateWorkspaces);
 
   // 1. Workspaces state (Multi-Ledger Support)
-  const [workspaces, setWorkspaces] = useState(() => freshWorkspace([]));
-  const [storageState, setStorageState] = useState({ status: "ok" });
-  const [migrationReport, setMigrationReport] = useState(null);
-  const [dbInfo, setDbInfo] = useState(null);
-
-  /*
-   * Fingerprints of what is already on disk, so a save sends only the rows that
-   * actually changed. Flipping one status writes one row instead of rewriting
-   * every invoice in the ledger.
-   */
-  const persistedRef = useRef(new Map());
-  const hydratedRef = useRef(false);
+  const [workspaces, setWorkspaces] = useState(initial.workspaces);
+  const [storageState, setStorageState] = useState(initial.storage);
 
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => {
     try {
@@ -111,39 +160,6 @@ export function useFinanceStore() {
   // Writing is blocked entirely while storage is in a state we do not understand,
   // so nothing can overwrite bytes the user might still recover from.
   const writesBlocked = storageState.status === "corrupt";
-
-  // Open the ledger once on mount.
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      const result = await loadLedger();
-      if (cancelled) return;
-
-      setWorkspaces(result.workspaces);
-      setClients(result.clients && result.clients.length ? result.clients : INITIAL_CLIENTS);
-      setSettings({
-        ...DEFAULT_SETTINGS,
-        ...(result.settings || {}),
-        exchangeRates: {
-          ...DEFAULT_SETTINGS.exchangeRates,
-          ...((result.settings && result.settings.exchangeRates) || {})
-        }
-      });
-      setStorageState(result.storage || { status: "ok" });
-      if (result.migration) setMigrationReport(result.migration);
-      if (result.dbPath) setDbInfo({ path: result.dbPath, backend: backendName() });
-
-      const active = result.workspaces.find((w) => w.id === activeWorkspaceId) || result.workspaces[0];
-      persistedRef.current = snapshotInvoices(active ? active.invoices : []);
-      hydratedRef.current = true;
-      setIsLoading(false);
-    })();
-
-    return () => { cancelled = true; };
-    // Intentionally runs once: the ledger is loaded at startup, not per render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Current active workspace
   const activeWorkspace = useMemo(() => {
@@ -170,10 +186,32 @@ export function useFinanceStore() {
   }, [activeWorkspaceId]);
 
   // 2. Clients state
-  const [clients, setClients] = useState(INITIAL_CLIENTS);
+  const [clients, setClients] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.CLIENTS);
+      return saved ? JSON.parse(saved) : INITIAL_CLIENTS;
+    } catch (e) {
+      return INITIAL_CLIENTS;
+    }
+  });
 
   // 3. Settings state
-  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+      if (!saved) return DEFAULT_SETTINGS;
+      const parsed = JSON.parse(saved);
+      // Merge rates key-by-key so a settings blob saved before a currency existed
+      // does not drop that currency's rate to undefined.
+      return {
+        ...DEFAULT_SETTINGS,
+        ...parsed,
+        exchangeRates: { ...DEFAULT_SETTINGS.exchangeRates, ...(parsed.exchangeRates || {}) }
+      };
+    } catch (e) {
+      return DEFAULT_SETTINGS;
+    }
+  });
 
   // 4. Base Currency state
   const [baseCurrency, setBaseCurrency] = useState(() => {
@@ -227,64 +265,89 @@ export function useFinanceStore() {
   }, []);
 
   const [lastSavedAt, setLastSavedAt] = useState(null);
+  const [changeEvents, setChangeEvents] = useState(loadLocalChangeEvents);
 
-  /*
-   * Persist invoices by difference.
-   *
-   * On SQLite each save is a transaction touching only changed rows, so a partial
-   * write can no longer damage the rest of the ledger - the failure mode the old
-   * single-JSON-blob design made unavoidable.
-   */
+  const recordEvent = useCallback((event) => {
+    if (writesBlocked) return;
+    setChangeEvents((prev) => pruneEvents([event, ...prev], event.workspaceId, HISTORY_CAP));
+  }, [writesBlocked]);
+
+  // Persist workspaces.
+  //
+  // The legacy mirror of the active ledger used to be written here as well, which
+  // doubled storage for no benefit. Every write now goes through safeWrite, which
+  // reports failures as data instead of throwing them at the console.
   useEffect(() => {
-    if (writesBlocked || !hydratedRef.current) return;
+    if (writesBlocked) return;
 
-    const active = workspaces.find((w) => w.id === activeWorkspaceId) || workspaces[0];
-    if (!active) return;
+    const result = safeWrite(STORAGE_KEYS.WORKSPACES, workspaces);
 
-    const delta = diffInvoices(persistedRef.current, active.invoices || []);
-    if (!delta.changed) return;
-
-    let cancelled = false;
-    (async () => {
-      const result = await persistInvoiceChanges(active.id, delta, workspaces);
-      if (cancelled) return;
-
-      if (result.ok) {
-        persistedRef.current = snapshotInvoices(active.invoices || []);
-        setLastSavedAt(Date.now());
-        setStorageState((prev) => (prev.status === "ok" ? prev : { status: "ok" }));
-        return;
+    if (result.ok) {
+      try {
+        localStorage.setItem(STORAGE_KEYS.ACTIVE_WORKSPACE, activeWorkspaceId);
+        // The legacy key is read once at first load to migrate old installs. Once
+        // workspaces exist it is dead weight, so drop it rather than mirroring it.
+        if (localStorage.getItem(STORAGE_KEYS.INVOICES)) {
+          localStorage.removeItem(STORAGE_KEYS.INVOICES);
+        }
+      } catch {
+        /* the ledger itself saved, which is what matters */
       }
+      setLastSavedAt(Date.now());
+      setStorageState((prev) => (prev.status === "ok" ? prev : { status: "ok" }));
+      // Second copy in IndexedDB - a much larger quota, failing independently.
+      mirrorWrite(STORAGE_KEYS.WORKSPACES, workspaces);
+      return;
+    }
 
-      console.error("Failed to persist invoices", result.detail);
-      // A failure while SAVING never blocks the app: the data is still in memory
-      // and exporting is the way out, which needs the interface reachable.
-      setStorageState({
-        status: "save-failed",
-        kind: result.kind,
-        detail: result.detail || "Unknown storage error",
-        attemptedBytes: result.attemptedBytes || 0,
-        usageBytes: result.usageBytes || 0
-      });
-    })();
-
-    return () => { cancelled = true; };
+    console.error("Failed to persist workspaces", result.error);
+    // A failure while SAVING must never block the app. The data is still in memory
+    // and the only useful thing the user can do is export it - which requires the
+    // interface to stay reachable.
+    setStorageState({
+      status: "save-failed",
+      kind: result.kind,
+      detail: result.error ? result.error.message : "Unknown storage error",
+      attemptedBytes: result.bytes || 0,
+      usageBytes: estimateUsage()
+    });
+    // The primary write failed, so the mirror is now the only fresh copy. This is
+    // exactly when it earns its keep.
+    mirrorWrite(STORAGE_KEYS.WORKSPACES, workspaces);
   }, [workspaces, activeWorkspaceId, writesBlocked]);
 
-  // Ledger names/creation are metadata, saved separately from the invoice rows.
   useEffect(() => {
-    if (writesBlocked || !hydratedRef.current) return;
-    persistWorkspaceMeta(workspaces);
-  }, [workspaces, writesBlocked]);
+    if (writesBlocked) return;
+    persistChangeEvents(changeEvents);
+  }, [changeEvents, writesBlocked]);
 
   useEffect(() => {
-    if (writesBlocked || !hydratedRef.current) return;
-    persistClients(clients);
+    let cancelled = false;
+    loadChangeEvents().then((rows) => {
+      if (cancelled || !Array.isArray(rows) || !rows.length) return;
+      setChangeEvents((prev) => {
+        const map = new Map();
+        [...rows, ...prev].forEach((e) => {
+          if (e?.id && !map.has(e.id)) map.set(e.id, e);
+        });
+        return Array.from(map.values()).sort((a, b) =>
+          String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+        );
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (writesBlocked) return;
+    safeWrite(STORAGE_KEYS.CLIENTS, clients);
   }, [clients, writesBlocked]);
 
   useEffect(() => {
-    if (writesBlocked || !hydratedRef.current) return;
-    persistSettings(settings);
+    if (writesBlocked) return;
+    safeWrite(STORAGE_KEYS.SETTINGS, settings);
   }, [settings, writesBlocked]);
 
   useEffect(() => {
@@ -327,9 +390,6 @@ export function useFinanceStore() {
   }, []);
 
   const deleteWorkspace = useCallback((id) => {
-    // Remove the rows as well; the metadata effect only ever upserts, so without
-    // this the ledger would reappear on the next launch.
-    removeWorkspaceRow(id);
     // Resolve the next active ledger from the same update that removes the old one,
     // rather than from a `workspaces` value captured when this callback was created.
     setWorkspaces(prev => {
@@ -355,28 +415,98 @@ export function useFinanceStore() {
     setSettings(DEFAULT_SETTINGS);
   }, [setInvoices]);
 
-  const importInvoices = useCallback((newInvoices, mode = "merge", workspaceName = null) => {
+  /**
+   * Fill in client contact details discovered during an Excel import.
+   *
+   * Only ever fills a BLANK field - a contact name or email already on file (set
+   * by hand, or from an earlier, more complete import) is never overwritten by a
+   * later row that happens to have it empty.
+   */
+  const mergeClientContacts = useCallback((discovered = []) => {
+    if (!discovered.length) return;
+    setClients(prev => {
+      const byName = new Map(prev.map(c => [String(c.name || "").trim().toLowerCase(), c]));
+      let changed = false;
+
+      discovered.forEach(d => {
+        const key = String(d.name || "").trim().toLowerCase();
+        if (!key) return;
+        const existing = byName.get(key);
+        if (!existing) {
+          byName.set(key, {
+            id: `c-${Date.now()}-${key.replace(/\s+/g, "_")}`,
+            name: d.name.trim(),
+            contactPerson: d.contactPerson || "",
+            email: d.email || "",
+            defaultCurrency: d.defaultCurrency || "USD",
+            defaultTerms: "Net 30",
+            notes: "Discovered from import"
+          });
+          changed = true;
+          return;
+        }
+        const patch = {};
+        if (d.contactPerson && !existing.contactPerson) patch.contactPerson = d.contactPerson;
+        if (d.email && !existing.email) patch.email = d.email;
+        if (Object.keys(patch).length) {
+          byName.set(key, { ...existing, ...patch });
+          changed = true;
+        }
+      });
+
+      return changed ? Array.from(byName.values()) : prev;
+    });
+  }, [setClients]);
+
+  const importInvoices = useCallback((newInvoices, mode = "merge", workspaceName = null, discoveredClients = [], meta = {}) => {
+    mergeClientContacts(discoveredClients);
+    const snapshot = cloneInvoices(invoices);
+    const count = Array.isArray(newInvoices) ? newInvoices.length : 0;
+    const summary = summariseImported({
+      count,
+      mode,
+      fileName: meta.fileName || ""
+    });
+
     if (mode === "new_workspace") {
       const name = workspaceName || `Ledger (${new Date().toLocaleDateString()})`;
-      createWorkspace(name, newInvoices);
+      const newId = createWorkspace(name, newInvoices);
+      recordEvent(makeHistoryEvent({
+        action: "imported",
+        workspaceId: newId,
+        before: [],
+        after: { count, mode, fileName: meta.fileName || "" },
+        summary,
+        extra: { invoiceId: null, invoiceNo: "", clientName: "" }
+      }));
     } else if (mode === "replace") {
-      // Replacing means deleting rows the diff would never notice were gone, so
-      // let the store do it in one transaction and re-seed the fingerprints.
-      persistReplaceInvoices(activeWorkspaceId, newInvoices, workspaces).then((r) => {
-        if (r.ok) persistedRef.current = snapshotInvoices(newInvoices);
-      });
       setInvoices(newInvoices);
+      recordEvent(makeHistoryEvent({
+        action: "imported",
+        workspaceId: activeWorkspaceId,
+        before: snapshot,
+        after: { count, mode, fileName: meta.fileName || "" },
+        summary,
+        extra: { invoiceId: null, invoiceNo: "", clientName: "" }
+      }));
     } else {
-      // Merge by invoiceNo
-      setInvoices(prev => {
-        const existingMap = new Map(prev.map(i => [i.invoiceNo.toLowerCase(), i]));
-        newInvoices.forEach(newItem => {
+      setInvoices((prev) => {
+        const existingMap = new Map(prev.map((i) => [i.invoiceNo.toLowerCase(), i]));
+        newInvoices.forEach((newItem) => {
           existingMap.set(newItem.invoiceNo.toLowerCase(), newItem);
         });
         return Array.from(existingMap.values());
       });
+      recordEvent(makeHistoryEvent({
+        action: "imported",
+        workspaceId: activeWorkspaceId,
+        before: snapshot,
+        after: { count, mode, fileName: meta.fileName || "" },
+        summary,
+        extra: { invoiceId: null, invoiceNo: "", clientName: "" }
+      }));
     }
-  }, [createWorkspace, setInvoices, activeWorkspaceId, workspaces]);
+  }, [createWorkspace, setInvoices, mergeClientContacts, invoices, recordEvent, activeWorkspaceId]);
 
   // Helper to suggest next invoice number
   const getNextInvoiceNumber = useCallback(() => {
@@ -426,6 +556,13 @@ export function useFinanceStore() {
     };
 
     setInvoices(prev => [newInvoice, ...prev]);
+    recordEvent(makeHistoryEvent({
+      action: "created",
+      workspaceId: activeWorkspaceId,
+      invoice: newInvoice,
+      after: cloneInvoice(newInvoice),
+      summary: summariseCreated(newInvoice)
+    }));
 
     // Check if client exists, if not add to clients
     if (invoiceData.clientName) {
@@ -437,6 +574,7 @@ export function useFinanceStore() {
             {
               id: `c-${Date.now()}`,
               name: invoiceData.clientName,
+              contactPerson: "",
               email: "",
               defaultCurrency: invoiceData.currency || "USD",
               defaultTerms: invoiceData.paymentTerms || "Net 30",
@@ -449,11 +587,14 @@ export function useFinanceStore() {
     }
 
     return newInvoice;
-  }, [getNextInvoiceNumber, settings.defaultCurrency, setInvoices]);
+  }, [getNextInvoiceNumber, settings.defaultCurrency, setInvoices, recordEvent, activeWorkspaceId]);
 
   const updateInvoice = useCallback((id, updatedFields) => {
-    setInvoices(prev =>
-      prev.map(inv => {
+    let before = null;
+    let after = null;
+    setInvoices((prev) => {
+      before = prev.find((inv) => inv.id === id) || null;
+      return prev.map((inv) => {
         if (inv.id !== id) return inv;
         const merged = { ...inv, ...updatedFields };
         if (updatedFields.raisedOn && !updatedFields.invoicedMonth) {
@@ -464,17 +605,54 @@ export function useFinanceStore() {
         }
         if (updatedFields.taxRate !== undefined) {
           merged.taxRate = parseFloat(updatedFields.taxRate || 0);
-          merged.taxAmount = parseFloat(((merged.amount * merged.taxRate) / 100).toFixed(2));
-          merged.netReceived = parseFloat((merged.amount - merged.taxAmount).toFixed(2));
+          if (updatedFields.taxAmount === undefined) {
+            merged.taxAmount = parseFloat(((merged.amount * merged.taxRate) / 100).toFixed(2));
+          }
+          // Never invent a full settlement over a recorded partial (or an
+          // explicit netReceived the caller already computed).
+          if (updatedFields.netReceived === undefined && merged.status === "Received") {
+            merged.netReceived = parseFloat((merged.amount - merged.taxAmount).toFixed(2));
+          }
         }
+        after = merged;
         return merged;
-      })
-    );
-  }, [setInvoices]);
+      });
+    });
+    if (before && after) {
+      const action = actionForFieldUpdate(before, after);
+      const summary =
+        action === "paid"
+          ? summarisePaid(after)
+          : action === "partial"
+          ? summarisePartial(after)
+          : summariseUpdated(before, after);
+      recordEvent(makeHistoryEvent({
+        action,
+        workspaceId: activeWorkspaceId,
+        before: cloneInvoice(before),
+        after: cloneInvoice(after),
+        summary
+      }));
+    }
+  }, [setInvoices, recordEvent, activeWorkspaceId]);
 
   const deleteInvoice = useCallback((id) => {
-    setInvoices(prev => prev.filter(inv => inv.id !== id));
-  }, [setInvoices]);
+    let removed = null;
+    setInvoices((prev) => {
+      removed = prev.find((inv) => inv.id === id) || null;
+      return prev.filter((inv) => inv.id !== id);
+    });
+    if (removed) {
+      recordEvent(makeHistoryEvent({
+        action: "deleted",
+        workspaceId: activeWorkspaceId,
+        invoice: removed,
+        before: cloneInvoice(removed),
+        after: null,
+        summary: summariseDeleted(removed)
+      }));
+    }
+  }, [setInvoices, recordEvent, activeWorkspaceId]);
 
   const duplicateInvoice = useCallback((id) => {
     const target = invoices.find(inv => inv.id === id);
@@ -495,35 +673,147 @@ export function useFinanceStore() {
     };
 
     setInvoices(prev => [duplicated, ...prev]);
-  }, [invoices, getNextInvoiceNumber, setInvoices]);
+    recordEvent(makeHistoryEvent({
+      action: "duplicated",
+      workspaceId: activeWorkspaceId,
+      invoice: duplicated,
+      before: cloneInvoice(target),
+      after: cloneInvoice(duplicated),
+      summary: summariseDuplicated(target, duplicated)
+    }));
+  }, [invoices, getNextInvoiceNumber, setInvoices, recordEvent, activeWorkspaceId]);
 
-  const markInvoiceAsPaid = useCallback((id, { receivedOn, taxRate = 0, taxAmount = 0, netReceived, remarks }) => {
-    setInvoices(prev =>
-      prev.map(inv => {
+  const markInvoiceAsPaid = useCallback((id, { receivedOn, taxRate = 0, taxAmount = 0, netReceived, status, remarks }) => {
+    // The caller (MarkPaidModal) has already decided whether this is a full
+    // settlement or a partial payment and has already composed the remarks text
+    // for it - this used to also auto-append a tax note here, which meant a
+    // partial payment's remarks could be silently overwritten with a "received
+    // after tax deduction" note that did not apply to it. Trust what was passed.
+    let before = null;
+    let after = null;
+    setInvoices((prev) =>
+      prev.map((inv) => {
         if (inv.id !== id) return inv;
+        before = inv;
         const amt = Number(inv.amount || 0);
         const finalTaxRate = Number(taxRate);
         const finalTaxAmount = Number(taxAmount || (amt * finalTaxRate) / 100);
         const finalNetReceived = netReceived !== undefined ? Number(netReceived) : amt - finalTaxAmount;
 
-        let finalRemarks = remarks !== undefined ? remarks : inv.remarks;
-        if (finalTaxRate > 0 && (!finalRemarks || !finalRemarks.includes(`${finalTaxRate}%`))) {
-          const taxNote = `Received payment after ${finalTaxRate}% tax deduction`;
-          finalRemarks = finalRemarks ? `${finalRemarks} | ${taxNote}` : taxNote;
-        }
-
-        return {
+        after = {
           ...inv,
-          status: "Received",
+          status: status || "Received",
           receivedOn: receivedOn || new Date().toISOString().split("T")[0],
           taxRate: finalTaxRate,
           taxAmount: parseFloat(finalTaxAmount.toFixed(2)),
           netReceived: parseFloat(finalNetReceived.toFixed(2)),
-          remarks: finalRemarks
+          remarks: remarks !== undefined ? remarks : inv.remarks
         };
+        return after;
       })
     );
-  }, [setInvoices]);
+    if (before && after) {
+      const action = after.status === "Partially Paid" ? "partial" : "paid";
+      recordEvent(makeHistoryEvent({
+        action,
+        workspaceId: activeWorkspaceId,
+        before: cloneInvoice(before),
+        after: cloneInvoice(after),
+        summary: action === "partial" ? summarisePartial(after) : summarisePaid(after)
+      }));
+    }
+  }, [setInvoices, recordEvent, activeWorkspaceId]);
+
+  const markEventUndone = useCallback((eventId) => {
+    setChangeEvents((prev) =>
+      prev.map((e) => (e.id === eventId ? { ...e, undone: true, undoneAt: new Date().toISOString() } : e))
+    );
+    persistChangeEventUndone(eventId, true);
+  }, []);
+
+  const undoHistoryEvent = useCallback((eventId, { force = false } = {}) => {
+    if (writesBlocked) {
+      return { ok: false, reason: "Saving is paused until storage is recovered" };
+    }
+    const event = changeEvents.find((e) => e.id === eventId);
+    if (!event) return { ok: false, reason: "That history row is gone" };
+    if (event.action === "restored") {
+      return { ok: false, reason: "That row is an old undo record and is no longer used" };
+    }
+    if (event.undone) {
+      return { ok: false, reason: "This change is already undone" };
+    }
+    if (event.workspaceId && event.workspaceId !== activeWorkspaceId) {
+      return { ok: false, reason: "Switch to that ledger first" };
+    }
+
+    if (event.action === "imported") {
+      if (!Array.isArray(event.before)) {
+        return {
+          ok: false,
+          undoable: false,
+          reason: "This import cannot be undone — the previous ledger was not saved with it"
+        };
+      }
+      setInvoices(cloneInvoices(event.before));
+      markEventUndone(eventId);
+      return { ok: true };
+    }
+
+    const live = invoices.find((i) => i.id === event.invoiceId);
+
+    if (event.action === "created" || event.action === "duplicated") {
+      if (live && event.after && !force && !invoicesEquivalent(live, event.after)) {
+        return { ok: false, stale: true, live };
+      }
+      if (live) setInvoices((prev) => prev.filter((i) => i.id !== event.invoiceId));
+      markEventUndone(eventId);
+      return { ok: true };
+    }
+
+    if (event.action === "deleted") {
+      if (!event.before) {
+        return { ok: false, undoable: false, reason: "Nothing to restore" };
+      }
+      if (live) {
+        return { ok: false, reason: "That invoice is already on the ledger" };
+      }
+      const clash = invoices.find(
+        (i) =>
+          String(i.invoiceNo || "").trim().toLowerCase() ===
+          String(event.before.invoiceNo || "").trim().toLowerCase()
+      );
+      if (clash) {
+        return {
+          ok: false,
+          reason: `Invoice number ${event.before.invoiceNo} is already used by ${clash.clientName || "another record"}`
+        };
+      }
+      setInvoices((prev) => [cloneInvoice(event.before), ...prev]);
+      markEventUndone(eventId);
+      return { ok: true };
+    }
+
+    if (!event.before) {
+      return { ok: false, undoable: false, reason: "Nothing to restore" };
+    }
+    if (!live) {
+      return { ok: false, reason: "That invoice is no longer on the ledger" };
+    }
+    if (!force && event.after && !invoicesEquivalent(live, event.after)) {
+      return { ok: false, stale: true, live };
+    }
+    setInvoices((prev) => prev.map((i) => (i.id === live.id ? cloneInvoice(event.before) : i)));
+    markEventUndone(eventId);
+    return { ok: true };
+  }, [
+    writesBlocked,
+    changeEvents,
+    activeWorkspaceId,
+    invoices,
+    setInvoices,
+    markEventUndone
+  ]);
 
   /* ------------------------------------------------------------ recovery ---
    * Everything the recovery card can offer the user. Each action reports what it
@@ -602,40 +892,6 @@ export function useFinanceStore() {
     });
     return { ok: false, kind: result.kind };
   }, [workspaces]);
-
-  /* ---------------------------------------------------------- DB backups --- */
-
-  const createBackup = useCallback(async (reason = "manual") => {
-    const res = await makeBackup(reason);
-    if (res.ok) setLastBackupAt(Date.now());
-    return res;
-  }, []);
-
-  const getBackups = useCallback(() => listBackups(), []);
-
-  /** Restore a database snapshot and re-seed state from what actually landed. */
-  const restoreDatabaseBackup = useCallback(async (path) => {
-    const res = await restoreBackupFile(path);
-    if (!res.ok) return res;
-
-    const data = res.data;
-    setWorkspaces(data.workspaces);
-    setClients(data.clients && data.clients.length ? data.clients : INITIAL_CLIENTS);
-    setSettings({
-      ...DEFAULT_SETTINGS,
-      ...(data.settings || {}),
-      exchangeRates: {
-        ...DEFAULT_SETTINGS.exchangeRates,
-        ...((data.settings && data.settings.exchangeRates) || {})
-      }
-    });
-    const active = data.workspaces.find((w) => w.id === activeWorkspaceId) || data.workspaces[0];
-    persistedRef.current = snapshotInvoices(active ? active.invoices : []);
-    setStorageState({ status: "ok" });
-
-    const count = data.workspaces.reduce((n, w) => n + (w.invoices ? w.invoices.length : 0), 0);
-    return { ok: true, invoiceCount: count };
-  }, [activeWorkspaceId]);
 
   /** The raw damaged bytes, so the user can keep a copy before deciding. */
   const getQuarantinedRaw = useCallback(
@@ -813,17 +1069,6 @@ export function useFinanceStore() {
   ]);
 
   return {
-    isLoading,
-    isDesktop: isDesktop(),
-    backend: backendName(),
-    dbInfo,
-    migrationReport,
-    dismissMigrationReport: () => setMigrationReport(null),
-    createBackup,
-    getBackups,
-    restoreDatabaseBackup,
-    revealBackups,
-    ledgerStats,
     invoices,
     filteredInvoices,
     workspaces,
@@ -888,6 +1133,10 @@ export function useFinanceStore() {
     duplicateInvoice,
     markInvoiceAsPaid,
     importInvoices,
+    historyEvents: changeEvents.filter(
+      (e) => e.workspaceId === activeWorkspaceId && e.action !== "restored"
+    ),
+    undoHistoryEvent,
     resetToSampleData,
     clearCurrentLedger,
     createWorkspace,

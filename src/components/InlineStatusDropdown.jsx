@@ -93,16 +93,18 @@ export function InlineStatusDropdown({
     effectiveStatus === "Received"
       ? "status-received"
       : effectiveStatus === "Overdue"
-        ? "status-overdue"
-        : effectiveStatus === "Pending"
-          ? "status-pending"
-          : effectiveStatus === "Cancelled"
-            ? "status-cancelled"
-            : effectiveStatus === "Duplicate"
-              ? "status-duplicate"
-              : effectiveStatus === "Suspended"
-                ? "status-suspended"
-                : "status-draft";
+      ? "status-overdue"
+      : effectiveStatus === "Pending"
+      ? "status-pending"
+      : effectiveStatus === "Cancelled"
+      ? "status-cancelled"
+      : effectiveStatus === "Duplicate"
+      ? "status-duplicate"
+      : effectiveStatus === "Suspended"
+      ? "status-suspended"
+      : effectiveStatus === "Partially Paid"
+      ? "status-partial"
+      : "status-draft";
 
   const displayLabel = effectiveStatus;
 
@@ -151,7 +153,7 @@ export function InlineStatusDropdown({
             {invoice.status === "Received" && <Check size={13} className="inline-status-check" />}
           </button>
 
-          {/* Option: Received with Tax / TDS modal */}
+          {/* Option: Record Payment modal - tax withholding and/or a partial amount */}
           <button
             type="button"
             className="inline-status-option"
@@ -161,9 +163,9 @@ export function InlineStatusDropdown({
               <Sparkles size={12} style={{ color: "var(--brand-primary)", flexShrink: 0 }} />
               <div>
                 <div className="inline-status-option-title" style={{ color: "var(--brand-primary)" }}>
-                  Settle with Tax / TDS...
+                  Record Payment...
                 </div>
-                <div className="inline-status-option-desc">Calculate 15% TDS & custom remittance</div>
+                <div className="inline-status-option-desc">Tax / TDS deduction, or only part of the invoice received</div>
               </div>
             </div>
           </button>

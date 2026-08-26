@@ -9,7 +9,9 @@ export function ConfirmDialog({
   message = "This action cannot be undone.",
   confirmText = "Confirm",
   cancelText = "Cancel",
-  variant = "danger" // "danger" | "warning" | "info"
+  variant = "danger", // "danger" | "warning" | "info"
+  altText = "",
+  onAlt = null
 }) {
   // Handle keyboard events (Enter to confirm, Escape to cancel)
   useEffect(() => {
@@ -81,6 +83,18 @@ export function ConfirmDialog({
           >
             {cancelText}
           </button>
+          {altText && typeof onAlt === "function" && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => {
+                onAlt();
+                onClose();
+              }}
+            >
+              {altText}
+            </button>
+          )}
           <button
             type="button"
             className={`${getConfirmBtnClass()} btn-sm`}

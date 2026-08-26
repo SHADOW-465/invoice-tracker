@@ -74,7 +74,7 @@ export function CustomSelect({
         <div className="custom-select-trigger-content">
           {Icon && <Icon size={size === "sm" ? 13 : 14} className="custom-select-icon" />}
           {selectedOption?.badge && (
-            <span className={`currency-badge currency-badge-${selectedOption.value.toLowerCase()}`}>
+            <span className={`currency-badge currency-badge-${String(selectedOption.badge || selectedOption.value).toLowerCase()}`}>
               {selectedOption.badge}
             </span>
           )}
@@ -107,7 +107,7 @@ export function CustomSelect({
                 >
                   <div className="custom-select-option-content">
                     {opt.badge && (
-                      <span className={`currency-badge currency-badge-${opt.value.toLowerCase()}`}>
+                      <span className={`currency-badge currency-badge-${String(opt.badge || opt.value).toLowerCase()}`}>
                         {opt.badge}
                       </span>
                     )}

@@ -1,9 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const JavaScriptObfuscator = require('javascript-obfuscator');
-const bytenode = require('bytenode');
 
-console.log('🔒 Starting Level 2 & Level 3 Code Protection Pipeline...');
+console.log('🔒 Starting Code Protection Pipeline (AST Obfuscation)...');
 
 // 1. Obfuscate all JavaScript files in dist/assets
 const distAssetsDir = path.join(__dirname, '../dist/assets');
@@ -21,7 +20,7 @@ if (fs.existsSync(distAssetsDir)) {
         compact: true,
         controlFlowFlattening: true,
         controlFlowFlatteningThreshold: 0.75,
-        deadCodeInjection: false, // keep performance snappy
+        deadCodeInjection: false,
         numbersToExpressions: true,
         simplify: true,
         splitStrings: true,
@@ -31,7 +30,7 @@ if (fs.existsSync(distAssetsDir)) {
         stringArrayThreshold: 0.8,
         transformObjectKeys: true,
         unicodeEscapeSequence: false,
-        disableConsoleOutput: false // keeps log visibility clean
+        disableConsoleOutput: false
       });
 
       fs.writeFileSync(filePath, obfuscationResult.getObfuscatedCode(), 'utf8');
@@ -42,28 +41,11 @@ if (fs.existsSync(distAssetsDir)) {
   console.log(`  ✅ Successfully obfuscated ${obfuscatedCount} frontend asset bundle(s).`);
 }
 
-// 2. Compile Electron main process into raw V8 Bytecode (.jsc)
+// 2. Clean up any residual bytenode loader files
 const electronDir = path.join(__dirname, '../electron');
-const mainSource = path.join(electronDir, 'main.cjs');
-const mainBytecode = path.join(electronDir, 'main.jsc');
-
-if (fs.existsSync(mainSource)) {
-  console.log('  ⚡ Compiling Electron main.cjs into V8 Bytecode (main.jsc)...');
-  bytenode.compileFile({
-    filename: mainSource,
-    output: mainBytecode,
-    electron: true
-  });
-  console.log('  ✅ V8 Bytecode compiled successfully: electron/main.jsc');
-}
-
-// 3. Create entry loader for compiled bytecode
 const entryLoaderPath = path.join(electronDir, 'entry.cjs');
-const entryContent = `// Protected Bytecode Loader
-require('bytenode');
-require('./main.jsc');
-`;
-fs.writeFileSync(entryLoaderPath, entryContent, 'utf8');
-console.log('  ✅ Created protected entry loader: electron/entry.cjs');
+const mainBytecode = path.join(electronDir, 'main.jsc');
+if (fs.existsSync(entryLoaderPath)) fs.unlinkSync(entryLoaderPath);
+if (fs.existsSync(mainBytecode)) fs.unlinkSync(mainBytecode);
 
 console.log('🎉 Code protection complete! Ready for packaging.');

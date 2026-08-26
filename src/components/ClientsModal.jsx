@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { X, Users, Plus, Building2, Trash2 } from "lucide-react";
 import { CURRENCIES, PAYMENT_TERMS } from "../types/finance";
-import { convertToBaseCurrency, formatCurrency, getClientColor } from "../utils/calculations";
+import { convertToBaseCurrency, formatCurrency, getClientColor, isTerminalStatus, isPartiallyPaid, getBalanceDue } from "../utils/calculations";
 import { ConfirmDialog } from "./ConfirmDialog";
 
 export function ClientsModal({
@@ -15,6 +15,7 @@ export function ClientsModal({
   const [isAdding, setIsAdding] = useState(false);
   const [newClient, setNewClient] = useState({
     name: "",
+    contactPerson: "",
     email: "",
     defaultCurrency: "USD",
     defaultTerms: "Net 30",
@@ -42,6 +43,8 @@ export function ClientsModal({
           currencies: new Set()
         };
       }
+      if (isTerminalStatus(inv.status)) return;
+
       const baseAmt = convertToBaseCurrency(Number(inv.amount || 0), inv.currency || "USD", baseCurrency, rates);
       map[name].totalBilledBase += baseAmt;
       map[name].invoiceCount += 1;
@@ -50,7 +53,12 @@ export function ClientsModal({
       if (inv.status === "Received") {
         const netBase = convertToBaseCurrency(Number(inv.netReceived || inv.amount || 0), inv.currency || "USD", baseCurrency, rates);
         map[name].totalCollectedBase += netBase;
-      } else if (inv.status !== "Cancelled" && inv.status !== "Draft") {
+      } else if (isPartiallyPaid(inv.status)) {
+        const collectedBase = convertToBaseCurrency(Number(inv.netReceived || 0), inv.currency || "USD", baseCurrency, rates);
+        const balanceBase = convertToBaseCurrency(getBalanceDue(inv), inv.currency || "USD", baseCurrency, rates);
+        map[name].totalCollectedBase += collectedBase;
+        map[name].pendingBase += balanceBase;
+      } else {
         map[name].pendingBase += baseAmt;
       }
     });
@@ -70,6 +78,7 @@ export function ClientsModal({
         list.push({
           id: `c-auto-${name.replace(/\s+/g, "_")}`,
           name,
+          contactPerson: "",
           email: "",
           defaultCurrency: inv.currency || "USD",
           defaultTerms: "Net 30",
@@ -90,6 +99,7 @@ export function ClientsModal({
     const created = {
       id: `c-${Date.now()}`,
       name: newClient.name.trim(),
+      contactPerson: newClient.contactPerson.trim(),
       email: newClient.email.trim(),
       defaultCurrency: newClient.defaultCurrency || "USD",
       defaultTerms: newClient.defaultTerms || "Net 30",
@@ -101,6 +111,7 @@ export function ClientsModal({
     }
     setNewClient({
       name: "",
+      contactPerson: "",
       email: "",
       defaultCurrency: "USD",
       defaultTerms: "Net 30",
@@ -170,6 +181,16 @@ export function ClientsModal({
                     value={newClient.name}
                     onChange={(e) => setNewClient((p) => ({ ...p, name: e.target.value }))}
                     required
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Contact Person</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. Jordan Lee"
+                    value={newClient.contactPerson}
+                    onChange={(e) => setNewClient((p) => ({ ...p, contactPerson: e.target.value }))}
                   />
                 </div>
                 <div className="form-group">
@@ -292,7 +313,9 @@ export function ClientsModal({
                             {clientName}
                           </div>
                           <div style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>
-                            {client.email || "No email on file"}
+                            {client.contactPerson
+                              ? `${client.contactPerson}${client.email ? " · " + client.email : ""}`
+                              : (client.email || "No contact on file")}
                           </div>
                         </div>
                       </div>

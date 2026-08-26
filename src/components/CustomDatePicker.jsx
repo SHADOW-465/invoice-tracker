@@ -8,6 +8,7 @@ export function CustomDatePicker({
   placeholder = "Select date",
   required = false,
   allowClear = false,
+  compact = false,
   minDate,
   maxDate
 }) {
@@ -206,7 +207,7 @@ export function CustomDatePicker({
   return (
     <div
       ref={dropdownRef}
-      className="custom-datepicker-container"
+      className={`custom-datepicker-container${compact ? " compact" : ""}`}
       onClick={(e) => e.stopPropagation()}
     >
       {/* Trigger Button Field */}
@@ -216,9 +217,10 @@ export function CustomDatePicker({
         onClick={() => setIsOpen((prev) => !prev)}
         aria-haspopup="dialog"
         aria-expanded={isOpen}
+        title={compact ? "Click to change received date" : undefined}
       >
         <div className="custom-datepicker-trigger-left">
-          <CalendarIcon size={14} className="custom-datepicker-icon" />
+          {!compact && <CalendarIcon size={14} className="custom-datepicker-icon" />}
           <span className="mono-num">
             {formattedDisplay || placeholder}
           </span>

@@ -9,6 +9,7 @@ import { InvoicePreviewModal } from "./components/InvoicePreviewModal";
 import { ClientsModal } from "./components/ClientsModal";
 import { SettingsModal } from "./components/SettingsModal";
 import { StorageGuard } from "./components/StorageGuard";
+import { HistoryView } from "./components/HistoryView";
 import { CheckCircle2, AlertCircle, Trash2, Info, Check } from "lucide-react";
 
 export function App() {
@@ -29,6 +30,7 @@ export function App() {
 
   const [isClientsOpen, setIsClientsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [appView, setAppView] = useState("ledger");
 
   // Toast notifications
   const [toasts, setToasts] = useState([]);
@@ -76,22 +78,6 @@ export function App() {
     setIsPreviewOpen(true);
   };
 
-  // Opening a SQLite ledger is asynchronous. Rendering the app before the first
-  // read completes would flash an empty ledger, which for a business's invoice
-  // records reads as "my data is gone".
-  if (store.isLoading) {
-    return (
-      <div className="app-boot">
-        <div className="app-boot-inner">
-          <div className="app-boot-mark">SS</div>
-          <div className="app-boot-title">Simon &amp; Son Invoice Ledger</div>
-          <div className="app-boot-sub">Opening your ledger…</div>
-          <div className="app-boot-bar"><span /></div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="app-container">
       {/* Storage trouble is otherwise invisible: the UI keeps accepting edits that
@@ -99,47 +85,44 @@ export function App() {
           blocking the app when data is at risk, warning persistently when it is not. */}
       <StorageGuard store={store} onShowToast={showToast} />
 
-      {/* Shown once, after the ledger is moved into the database. */}
-      {store.migrationReport?.migrated && (
-        <div className="migration-banner" role="status">
-          <Check size={15} />
-          <span>
-            Moved <strong>{store.migrationReport.invoices}</strong> invoices into the new
-            database. Your data is now stored in a proper file with automatic backups
-            {store.migrationReport.skippedDuplicates > 0 &&
-              ` (${store.migrationReport.skippedDuplicates} duplicate invoice number${store.migrationReport.skippedDuplicates === 1 ? "" : "s"} skipped)`}.
-          </span>
-          <button className="btn btn-ghost btn-sm" onClick={store.dismissMigrationReport}>Dismiss</button>
-        </div>
-      )}
-
       {/* Navigation Header */}
       <Navbar
         store={store}
         onOpenNewInvoice={handleOpenNewInvoice}
         onOpenClients={() => setIsClientsOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenHistory={() => setAppView("history")}
+        appView={appView}
+        onGoToLedger={() => setAppView("ledger")}
         onShowToast={showToast}
       />
 
       {/* Main Content Area */}
       <main className="main-content">
-        {/* 1. Executive Bento Grid Dashboard */}
-        <DashboardMetrics
-          store={store}
-          showAnalytics={showAnalytics}
-          onToggleAnalytics={() => setShowAnalytics((p) => !p)}
-          onShowToast={showToast}
-        />
-
-        {/* 3. Main Invoice Ledger Grid */}
-        <InvoiceTable
-          store={store}
-          onOpenEditInvoice={handleOpenEditInvoice}
-          onOpenMarkPaid={handleOpenMarkPaid}
-          onOpenPreviewInvoice={handleOpenPreviewInvoice}
-          onShowToast={showToast}
-        />
+        {appView === "history" ? (
+          <HistoryView
+            store={store}
+            onBack={() => setAppView("ledger")}
+            onOpenInvoice={handleOpenEditInvoice}
+            onShowToast={showToast}
+          />
+        ) : (
+          <>
+            <DashboardMetrics
+              store={store}
+              showAnalytics={showAnalytics}
+              onToggleAnalytics={() => setShowAnalytics((p) => !p)}
+              onShowToast={showToast}
+            />
+            <InvoiceTable
+              store={store}
+              onOpenEditInvoice={handleOpenEditInvoice}
+              onOpenMarkPaid={handleOpenMarkPaid}
+              onOpenPreviewInvoice={handleOpenPreviewInvoice}
+              onShowToast={showToast}
+            />
+          </>
+        )}
       </main>
 
       {/* Modals */}
@@ -159,7 +142,11 @@ export function App() {
         invoice={markingInvoice}
         onConfirm={(id, data) => {
           store.markInvoiceAsPaid(id, data);
-          showToast(`Invoice #${markingInvoice?.invoiceNo} settled & marked as Paid!`);
+          showToast(
+            data.status === "Partially Paid"
+              ? `Invoice #${markingInvoice?.invoiceNo} recorded as partially paid`
+              : `Invoice #${markingInvoice?.invoiceNo} settled & marked as Paid!`
+          );
         }}
       />
 

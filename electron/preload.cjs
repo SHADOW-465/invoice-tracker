@@ -25,6 +25,9 @@ contextBridge.exposeInMainWorld("ledgerAPI", {
   deleteWorkspace: (id) => invoke("ledger:deleteWorkspace", { id }),
   saveClients: (clients) => invoke("ledger:saveClients", { clients }),
   saveSettings: (settings) => invoke("ledger:saveSettings", { settings }),
+  appendChangeEvents: (events) => invoke("ledger:appendChangeEvents", { events }),
+  listChangeEvents: (workspaceId) => invoke("ledger:listChangeEvents", { workspaceId }),
+  markChangeEventUndone: (id, undone) => invoke("ledger:markChangeEventUndone", { id, undone }),
 
   // one-time move off browser storage
   migrateFromLocalStorage: (payload) => invoke("ledger:migrate", { payload }),

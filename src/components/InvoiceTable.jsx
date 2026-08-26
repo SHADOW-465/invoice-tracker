@@ -18,7 +18,8 @@ import {
   X,
   Sparkles
 } from "lucide-react";
-import { MONTH_NAMES, calculateAging, formatDate, formatCurrency, getClientColor, getEffectiveStatus, isReceivable } from "../utils/calculations";
+import { MONTH_NAMES, calculateAging, formatDate, formatCurrency, getClientColor, getEffectiveStatus, isReceivable, getBalanceDue, isPartiallyPaid } from "../utils/calculations";
+import { CustomDatePicker } from "./CustomDatePicker";
 import { CURRENCIES } from "../types/finance";
 import { CustomSelect } from "./CustomSelect";
 import { InlineStatusDropdown } from "./InlineStatusDropdown";
@@ -93,7 +94,7 @@ export function InvoiceTable({
     message: "",
     confirmText: "Delete",
     variant: "danger",
-    onConfirm: () => { }
+    onConfirm: () => {}
   });
 
   // Count per status for segmented tabs
@@ -104,7 +105,7 @@ export function InvoiceTable({
     const counts = {
       all: invoices.length,
       Received: 0, Pending: 0, Overdue: 0,
-      Draft: 0, Cancelled: 0, Duplicate: 0, Suspended: 0,
+      Draft: 0, Cancelled: 0, Duplicate: 0, Suspended: 0, "Partially Paid": 0,
       Outstanding: 0, TaxDeducted: 0
     };
     invoices.forEach((inv) => {
@@ -112,7 +113,7 @@ export function InvoiceTable({
       if (counts[eff] !== undefined) counts[eff] += 1;
       if (isReceivable(inv)) counts.Outstanding += 1;
       if (Number(inv.taxAmount || 0) > 0 || Number(inv.taxRate || 0) > 0 ||
-        /\btds\b|tax|withh/i.test(String(inv.remarks || ""))) {
+          /\btds\b|tax|withh/i.test(String(inv.remarks || ""))) {
         counts.TaxDeducted += 1;
       }
     });
@@ -137,21 +138,21 @@ export function InvoiceTable({
     if (amountMax !== "") n++;
     return n;
   }, [searchQuery, statusFilter, currencyFilter, monthFilter, yearFilter, clientFilter,
-    invoiceNoFilter, paymentModeFilter, agingFilter, taxFilter, settledFilter, amountMin, amountMax]);
+      invoiceNoFilter, paymentModeFilter, agingFilter, taxFilter, settledFilter, amountMin, amountMax]);
 
   // Any change to the result set must return to page 1, otherwise a filter that
   // yields 12 rows while sitting on page 20 shows an empty table.
   useEffect(() => {
     setPage(1);
   }, [searchQuery, statusFilter, currencyFilter, monthFilter, yearFilter, clientFilter,
-    invoiceNoFilter, paymentModeFilter, agingFilter, taxFilter, settledFilter,
-    amountMin, amountMax, sortField, sortDirection, pageSize]);
+      invoiceNoFilter, paymentModeFilter, agingFilter, taxFilter, settledFilter,
+      amountMin, amountMax, sortField, sortDirection, pageSize]);
 
   useEffect(() => {
     setSelectedIds(new Set());
   }, [searchQuery, statusFilter, currencyFilter, monthFilter, yearFilter, clientFilter,
-    invoiceNoFilter, paymentModeFilter, agingFilter, taxFilter, settledFilter,
-    amountMin, amountMax]);
+      invoiceNoFilter, paymentModeFilter, agingFilter, taxFilter, settledFilter,
+      amountMin, amountMax]);
 
   const totalPages = Math.max(1, Math.ceil(filteredInvoices.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -262,39 +263,39 @@ export function InvoiceTable({
 
   return (
     <div id="invoice-ledger-table" style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-      {/* A currency with no rate converts 1:1 with the dollar and silently
+        {/* A currency with no rate converts 1:1 with the dollar and silently
             overstates every invoice in it. Too consequential to leave buried
             in Settings. */}
-      {store.unratedCurrencies?.length > 0 && (
-        <div className="data-quality-notice" role="alert">
-          <AlertTriangle size={16} style={{ color: "var(--status-pending-text)", flexShrink: 0, marginTop: 1 }} />
-          <div className="data-quality-notice-body">
-            <div className="data-quality-notice-title">
-              {store.unratedCurrencies.length} currenc{store.unratedCurrencies.length === 1 ? "y has" : "ies have"} no exchange rate
-            </div>
-            <p>
-              These invoices are being counted as though 1 unit equals 1 US dollar, which
-              overstates every converted total on this screen. Set a rate in{" "}
-              <strong>Settings &rarr; Exchange Rates</strong> to correct them.
-            </p>
-            <div className="data-quality-list">
-              {store.unratedCurrencies.map((c) => (
-                <span key={c.code} className="data-quality-chip">
-                  {c.code} · {c.count} invoice{c.count === 1 ? "" : "s"}
-                </span>
-              ))}
+        {store.unratedCurrencies?.length > 0 && (
+          <div className="data-quality-notice" role="alert">
+            <AlertTriangle size={16} style={{ color: "var(--status-pending-text)", flexShrink: 0, marginTop: 1 }} />
+            <div className="data-quality-notice-body">
+              <div className="data-quality-notice-title">
+                {store.unratedCurrencies.length} currenc{store.unratedCurrencies.length === 1 ? "y has" : "ies have"} no exchange rate
+              </div>
+              <p>
+                These invoices are being counted as though 1 unit equals 1 US dollar, which
+                overstates every converted total on this screen. Set a rate in{" "}
+                <strong>Settings &rarr; Exchange Rates</strong> to correct them.
+              </p>
+              <div className="data-quality-list">
+                {store.unratedCurrencies.map((c) => (
+                  <span key={c.code} className="data-quality-chip">
+                    {c.code} · {c.count} invoice{c.count === 1 ? "" : "s"}
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.4rem 0.75rem", background: "var(--bg-surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-sm)", fontSize: "var(--text-xs)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <span style={{ color: "var(--ink-muted)", fontWeight: 600 }}>Active Ledger File:</span>
-          <strong style={{ color: "var(--brand-primary)", fontWeight: 700 }}>{store.activeWorkspace?.name || "Master Ledger"}</strong>
-          <span className="kpi-badge kpi-badge-neutral">{invoices.length} invoices</span>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.4rem 0.75rem", background: "var(--bg-surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-sm)", fontSize: "var(--text-xs)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span style={{ color: "var(--ink-muted)", fontWeight: 600 }}>Active Ledger File:</span>
+            <strong style={{ color: "var(--brand-primary)", fontWeight: 700 }}>{store.activeWorkspace?.name || "Master Ledger"}</strong>
+            <span className="kpi-badge kpi-badge-neutral">{invoices.length} invoices</span>
+          </div>
         </div>
-      </div>
       {/* 1. Header Toolbar with Segmented Tabs & Filters */}
       <div className="ledger-header-bar">
         {/* Segmented Status Tabs */}
@@ -327,6 +328,18 @@ export function InvoiceTable({
             <span>Overdue</span>
             <span className="tab-badge tab-badge-overdue">{statusCounts.Overdue}</span>
           </button>
+          {statusCounts["Partially Paid"] > 0 && (
+            <button
+              className={`segmented-tab-btn ${statusFilter === "Partially Paid" ? "active" : ""}`}
+              onClick={() => setStatusFilter(statusFilter === "Partially Paid" ? "all" : "Partially Paid")}
+              title="Some of the invoice was collected; the remaining balance still ages toward overdue"
+            >
+              <span>Partially Paid</span>
+              <span className="tab-badge" style={{ background: "var(--status-partial-bg)", color: "var(--status-partial-text)" }}>
+                {statusCounts["Partially Paid"]}
+              </span>
+            </button>
+          )}
           {statusCounts.Suspended > 0 && (
             <button
               className={`segmented-tab-btn ${statusFilter === "Suspended" ? "active" : ""}`}
@@ -488,7 +501,7 @@ export function InvoiceTable({
           <table className="data-table-refined">
             <thead>
               <tr>
-                <th style={{ width: "38px", textAlign: "center" }}>
+                <th className="col-check" style={{ textAlign: "center" }}>
                   <label className="custom-checkbox-label" title="Select all invoices on this page">
                     <input
                       type="checkbox"
@@ -502,54 +515,54 @@ export function InvoiceTable({
                     </span>
                   </label>
                 </th>
-                <th className="sortable" onClick={() => handleSort("invoiceNo")}>
+                <th className="sortable col-invoice" onClick={() => handleSort("invoiceNo")}>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
                     <span>Invoice #</span>
                     {getSortIcon("invoiceNo")}
                   </div>
                 </th>
-                <th className="sortable" onClick={() => handleSort("clientName")}>
+                <th className="sortable col-client" onClick={() => handleSort("clientName")}>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
                     <span>Client</span>
                     {getSortIcon("clientName")}
                   </div>
                 </th>
-                <th className="sortable" onClick={() => handleSort("amount")} style={{ textAlign: "right" }}>
+                <th className="sortable col-amount" onClick={() => handleSort("amount")} style={{ textAlign: "right" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.3rem" }}>
                     <span>Amount</span>
                     {getSortIcon("amount")}
                   </div>
                 </th>
-                <th className="sortable" onClick={() => handleSort("raisedOn")}>
+                <th className="sortable col-raised" onClick={() => handleSort("raisedOn")}>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
                     <span>Raised</span>
                     {getSortIcon("raisedOn")}
                   </div>
                 </th>
-                <th className="sortable" onClick={() => handleSort("status")}>
+                <th className="sortable col-status" onClick={() => handleSort("status")}>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
                     <span>Status</span>
                     {getSortIcon("status")}
                   </div>
                 </th>
-                <th>Payment Mode</th>
-                <th className="sortable" onClick={() => handleSort("receivedOn")}>
+                <th className="col-mode">Mode</th>
+                <th className="sortable col-settled" onClick={() => handleSort("receivedOn")}>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
-                    <span>Settled On</span>
+                    <span>Settled</span>
                     {getSortIcon("receivedOn")}
                   </div>
                 </th>
-                <th>Due / Aging</th>
-                <th>Remarks / Tax Deduction</th>
-                <th style={{ textAlign: "right" }}>Actions</th>
+                <th className="col-aging">Aging</th>
+                <th className="col-remarks">Remarks</th>
+                <th className="col-actions" style={{ textAlign: "right" }}>Actions</th>
               </tr>
 
               {/* Per-column filter row. Each control narrows exactly the column it
                   sits under, and stacks with every other one. */}
               {showFilters && (
                 <tr className="column-filter-row">
-                  <th />
-                  <th>
+                  <th className="col-check" />
+                  <th className="col-invoice">
                     <input
                       type="text"
                       className="col-filter"
@@ -559,7 +572,7 @@ export function InvoiceTable({
                       aria-label="Filter by invoice number"
                     />
                   </th>
-                  <th>
+                  <th className="col-client">
                     <select
                       className="col-filter"
                       value={clientFilter}
@@ -570,7 +583,7 @@ export function InvoiceTable({
                       {availableClients.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </th>
-                  <th>
+                  <th className="col-amount">
                     <div className="col-filter-range">
                       <input
                         type="number"
@@ -590,7 +603,7 @@ export function InvoiceTable({
                       />
                     </div>
                   </th>
-                  <th>
+                  <th className="col-raised">
                     <div className="col-filter-range">
                       <select
                         className="col-filter"
@@ -612,7 +625,7 @@ export function InvoiceTable({
                       </select>
                     </div>
                   </th>
-                  <th>
+                  <th className="col-status">
                     <select
                       className="col-filter"
                       value={statusFilter}
@@ -624,6 +637,7 @@ export function InvoiceTable({
                       <option value="Pending">Pending</option>
                       <option value="Overdue">Overdue</option>
                       <option value="Outstanding">Outstanding (unpaid)</option>
+                      <option value="Partially Paid">Partially Paid</option>
                       <option value="Suspended">Suspended (on hold)</option>
                       <option value="Draft">Draft</option>
                       <option value="Cancelled">Cancelled</option>
@@ -631,7 +645,7 @@ export function InvoiceTable({
                       <option value="TaxDeducted">Tax withheld</option>
                     </select>
                   </th>
-                  <th>
+                  <th className="col-mode">
                     <select
                       className="col-filter"
                       value={paymentModeFilter}
@@ -642,7 +656,7 @@ export function InvoiceTable({
                       {availablePaymentModes.map((m) => <option key={m} value={m}>{m}</option>)}
                     </select>
                   </th>
-                  <th>
+                  <th className="col-settled">
                     <select
                       className="col-filter"
                       value={settledFilter}
@@ -654,7 +668,7 @@ export function InvoiceTable({
                       <option value="unsettled">Not settled</option>
                     </select>
                   </th>
-                  <th>
+                  <th className="col-aging">
                     <select
                       className="col-filter"
                       value={agingFilter}
@@ -671,7 +685,7 @@ export function InvoiceTable({
                       <option value="settled">Settled</option>
                     </select>
                   </th>
-                  <th>
+                  <th className="col-remarks">
                     <select
                       className="col-filter"
                       value={taxFilter}
@@ -683,7 +697,7 @@ export function InvoiceTable({
                       <option value="without">No deduction</option>
                     </select>
                   </th>
-                  <th style={{ textAlign: "right" }}>
+                  <th className="col-actions" style={{ textAlign: "right" }}>
                     <button
                       type="button"
                       className="btn btn-ghost btn-sm"
@@ -735,6 +749,7 @@ export function InvoiceTable({
                     >
                       {/* Checkbox */}
                       <td
+                        className="col-check"
                         style={{ textAlign: "center" }}
                         onClick={(e) => toggleSelectRow(inv.id, e)}
                       >
@@ -751,7 +766,7 @@ export function InvoiceTable({
                       </td>
 
                       {/* Invoice # */}
-                      <td>
+                      <td className="col-invoice">
                         <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
                           <span className="mono-num invoice-no-tag">
                             {inv.invoiceNo}
@@ -760,26 +775,27 @@ export function InvoiceTable({
                       </td>
 
                       {/* Client */}
-                      <td>
-                        <div style={{ display: "flex", alignItems: "center" }}>
+                      <td className="col-client">
+                        <div style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
                           <span
                             className="client-initial-badge"
                             style={{
                               backgroundColor: clientColor.bg,
                               color: clientColor.text,
-                              borderColor: clientColor.border
+                              borderColor: clientColor.border,
+                              flexShrink: 0
                             }}
                           >
                             {(inv.clientName || "C").slice(0, 1).toUpperCase()}
                           </span>
-                          <span style={{ fontWeight: 600, color: "var(--ink-primary)" }}>
+                          <span className="cell-ellipsis" style={{ fontWeight: 600, color: "var(--ink-primary)" }} title={inv.clientName}>
                             {inv.clientName}
                           </span>
                         </div>
                       </td>
 
                       {/* Amount (Gross + Net if tax deducted) with currency pill */}
-                      <td style={{ textAlign: "right" }}>
+                      <td className="col-amount" style={{ textAlign: "right" }}>
                         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "1px" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
                             <span className={`currency-tag currency-tag-${(inv.currency || "USD").toLowerCase()}`}>
@@ -794,18 +810,23 @@ export function InvoiceTable({
                               Net: {formatCurrency(inv.netReceived, inv.currency)} (-{inv.taxRate}%)
                             </span>
                           )}
+                          {inv.status === "Partially Paid" && (
+                            <span style={{ fontSize: "0.68rem", color: "var(--status-partial-text)", fontWeight: 700 }} className="mono-num">
+                              {formatCurrency(inv.netReceived, inv.currency)} paid · {formatCurrency(getBalanceDue(inv), inv.currency)} owed
+                            </span>
+                          )}
                         </div>
                       </td>
 
                       {/* Raised On */}
-                      <td>
+                      <td className="col-raised">
                         <span className="mono-num" style={{ fontSize: "var(--text-xs)", color: "var(--ink-secondary)" }}>
                           {formatDate(inv.raisedOn)}
                         </span>
                       </td>
 
                       {/* Status (Interactive Inline Dropdown) */}
-                      <td onClick={(e) => e.stopPropagation()}>
+                      <td className="col-status" onClick={(e) => e.stopPropagation()}>
                         <InlineStatusDropdown
                           invoice={inv}
                           onUpdateStatus={updateInvoice}
@@ -815,7 +836,7 @@ export function InvoiceTable({
                       </td>
 
                       {/* Payment Mode (Interactive Inline Dropdown) */}
-                      <td onClick={(e) => e.stopPropagation()}>
+                      <td className="col-mode" onClick={(e) => e.stopPropagation()}>
                         <InlinePaymentModeDropdown
                           invoice={inv}
                           onUpdateMode={updateInvoice}
@@ -823,15 +844,27 @@ export function InvoiceTable({
                         />
                       </td>
 
-                      {/* Received On */}
-                      <td>
-                        <span className="mono-num" style={{ fontSize: "var(--text-xs)", color: inv.receivedOn ? "var(--status-received-text)" : "var(--ink-faint)" }}>
-                          {inv.receivedOn ? formatDate(inv.receivedOn) : "—"}
-                        </span>
+                      {/* Received On — click to correct the bank date */}
+                      <td className="col-settled" onClick={(e) => e.stopPropagation()}>
+                        {inv.status === "Received" || isPartiallyPaid(inv.status) || inv.receivedOn ? (
+                          <CustomDatePicker
+                            compact
+                            value={inv.receivedOn || ""}
+                            onChange={(val) => {
+                              updateInvoice(inv.id, { receivedOn: val });
+                              onShowToast(`Updated received date for #${inv.invoiceNo}`);
+                            }}
+                            placeholder="Set date"
+                          />
+                        ) : (
+                          <span className="mono-num" style={{ fontSize: "var(--text-xs)", color: "var(--ink-faint)" }}>
+                            —
+                          </span>
+                        )}
                       </td>
 
                       {/* Due / Aging */}
-                      <td>
+                      <td className="col-aging">
                         {inv.status === "Received" ? (
                           <span style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>
                             {aging.daysToCollect !== null ? `${aging.daysToCollect}d to collect` : "—"}
@@ -849,15 +882,12 @@ export function InvoiceTable({
                       </td>
 
                       {/* Remarks */}
-                      <td style={{ maxWidth: "220px" }}>
+                      <td className="col-remarks">
                         <span
+                          className="cell-ellipsis"
                           style={{
                             fontSize: "var(--text-xs)",
-                            color: inv.remarks ? "var(--ink-primary)" : "var(--ink-faint)",
-                            display: "-webkit-box",
-                            WebkitLineClamp: 1,
-                            WebkitBoxOrient: "vertical",
-                            overflow: "hidden"
+                            color: inv.remarks ? "var(--ink-primary)" : "var(--ink-faint)"
                           }}
                           title={inv.remarks}
                         >
@@ -866,7 +896,7 @@ export function InvoiceTable({
                       </td>
 
                       {/* Actions (Clicking actions does NOT trigger row invoice preview) */}
-                      <td onClick={(e) => e.stopPropagation()}>
+                      <td className="col-actions" onClick={(e) => e.stopPropagation()}>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "3px" }}>
                           {/* Quick Mark Paid */}
                           {inv.status !== "Received" && (
@@ -933,20 +963,20 @@ export function InvoiceTable({
           </div>
 
           <div className="ledger-pagination-controls">
-            <label className="ledger-pagination-size">
-              <span>Rows</span>
-              <select
-                className="col-filter"
+            <div className="ledger-pagination-size">
+              <span>Rows:</span>
+              <CustomSelect
                 value={pageSize}
-                onChange={(e) => setPageSize(Number(e.target.value))}
-                aria-label="Rows per page"
-              >
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-                <option value={250}>250</option>
-                <option value={500}>500</option>
-              </select>
-            </label>
+                onChange={(val) => setPageSize(Number(val))}
+                options={[
+                  { value: 50, label: "50" },
+                  { value: 100, label: "100" },
+                  { value: 250, label: "250" },
+                  { value: 500, label: "500" }
+                ]}
+                size="sm"
+              />
+            </div>
 
             <button
               type="button"

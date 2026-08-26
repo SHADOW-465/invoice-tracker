@@ -18,11 +18,14 @@ const pickVal = (row, ...keys) => {
 
 /**
  * Map whatever a spreadsheet calls a status onto the vocabulary this app uses.
- * A received date always wins - if cash landed, the invoice is settled regardless
- * of what the status column says.
+ * An explicit partial status wins over a received date, because a partial
+ * payment also has a received date and must not be treated as fully settled.
  */
 function normaliseStatus(rawStatus, receivedOn) {
   const v = String(rawStatus || "").trim().toLowerCase();
+  // Partial payments also carry a received date, so that date must not
+  // silently promote them to fully Received on re-import.
+  if (/partial/.test(v)) return "Partially Paid";
   if (receivedOn) return "Received";
   if (/^(received|paid|settled|complete[d]?|closed)$/.test(v)) return "Received";
   if (/^(cancel|cancelled|canceled|void|voided|written off|write[- ]off)$/.test(v)) return "Cancelled";
@@ -39,15 +42,20 @@ function normaliseStatus(rawStatus, receivedOn) {
  * Settings as needing a rate rather than being silently converted 1:1.
  */
 const CURRENCY_ALIASES = {
-  RAND: "ZAR", "SA RAND": "ZAR", R: "ZAR",
-  "US DOLLAR": "USD", USD$: "USD", DOLLAR: "USD", $: "USD",
-  POUND: "GBP", GBP$: "GBP", STERLING: "GBP", "£": "GBP",
-  EURO: "EUR", "€": "EUR",
-  RUPEE: "INR", RS: "INR", "₹": "INR", INR$: "INR",
-  DIRHAM: "AED",
-  "NZ DOLLAR": "NZD", "AU DOLLAR": "AUD", "AUS": "AUD",
-  "CAN DOLLAR": "CAD",
-  "SING DOLLAR": "SGD"
+  RAND: "ZAR", "SA RAND": "ZAR", R: "ZAR", "ZAR ": "ZAR",
+  "US DOLLAR": "USD", USD$: "USD", DOLLAR: "USD", $: "USD", "USD ": "USD",
+  POUND: "GBP", GBP$: "GBP", STERLING: "GBP", "£": "GBP", "GBP ": "GBP",
+  EURO: "EUR", "€": "EUR", "EUR ": "EUR",
+  RUPEE: "INR", RS: "INR", "₹": "INR", INR$: "INR", "INR ": "INR",
+  DIRHAM: "AED", "UAE DIRHAM": "AED", DHS: "AED", "AED ": "AED",
+  RIYAL: "SAR", "SAUDI RIYAL": "SAR", "SAR ": "SAR",
+  "NZ DOLLAR": "NZD", "NZD ": "NZD",
+  "AU DOLLAR": "AUD", "AUS": "AUD", "AUD ": "AUD",
+  "CAN DOLLAR": "CAD", "CAD ": "CAD",
+  "SING DOLLAR": "SGD", "SGD ": "SGD",
+  PESO: "MXN", "MEXICAN PESO": "MXN", "MEX$": "MXN", "MXN ": "MXN",
+  YEN: "JPY", "JAPANESE YEN": "JPY", "JPY ": "JPY",
+  YUAN: "CNY", "CHINESE YUAN": "CNY", RMB: "CNY", "CNY ": "CNY"
 };
 
 function normaliseCurrency(raw) {
@@ -78,7 +86,9 @@ export function exportToExcel(invoices, filename = "Invoice_Tracker_Export.xlsx"
       "Payment Terms": inv.paymentTerms || "Net 30",
       "Tax %": Number(inv.taxRate || 0),
       "Tax Amount": Number(inv.taxAmount || 0),
-      "Net Received": inv.status === "Received" ? Number(inv.netReceived || 0) : "",
+      "Net Received": (inv.status === "Received" || inv.status === "Partially Paid")
+        ? Number(inv.netReceived || 0)
+        : "",
       "Effective Status": getEffectiveStatus(inv),
       "Days Overdue": aging.isOverdue ? aging.overdueDays : ""
     };
@@ -96,15 +106,7 @@ export function exportToExcel(invoices, filename = "Invoice_Tracker_Export.xlsx"
   XLSX.writeFile(workbook, filename);
 }
 
-export function parseExcelFile(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onload = (e) => {
-      try {
-        const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type: "array", cellDates: true });
-
+export function parseWorkbook(workbook) {
         // Find the best sheet (first sheet, or sheet named Invoices / Revenue / 2026, or the one with most rows)
         let chosenSheetName = workbook.SheetNames[0];
         let maxRows = 0;
@@ -121,6 +123,22 @@ export function parseExcelFile(file) {
         }
 
         const rawJson = XLSX.utils.sheet_to_json(chosenWorksheet, { defval: "" });
+
+        // Client contact details live on the invoice rows in the source sheet
+        // (Contact Person / Email ID columns) but belong on the client record,
+        // not repeated onto every invoice. Collected once here, applied to
+        // whichever client each row names, and returned separately so the caller
+        // can merge them into the client directory.
+        const clientContacts = new Map();
+        const noteClientContact = (name, contactPerson, email, currency) => {
+          const key = name.trim().toLowerCase();
+          if (!key) return;
+          const existing = clientContacts.get(key) || { name: name.trim(), contactPerson: "", email: "", defaultCurrency: currency };
+          if (contactPerson && !existing.contactPerson) existing.contactPerson = contactPerson;
+          if (email && !existing.email) existing.email = email;
+          if (!existing.defaultCurrency && currency) existing.defaultCurrency = currency;
+          clientContacts.set(key, existing);
+        };
 
         const parsedInvoices = rawJson
           .map((row, idx) => {
@@ -168,12 +186,55 @@ export function parseExcelFile(file) {
               ? (parseFloat(String(declaredTaxAmt).replace(/[^0-9.-]/g, "")) || 0)
               : (taxRate ? parseFloat(((numAmt * taxRate) / 100).toFixed(2)) : 0);
 
-            const declaredNet = pickVal(row, "Net Received", "Amount Received", "Received Amount");
-            const netReceived = status === "Received"
-              ? (declaredNet !== ""
-                ? (parseFloat(String(declaredNet).replace(/[^0-9.-]/g, "")) || 0)
-                : parseFloat((numAmt - taxAmount).toFixed(2)))
-              : 0;
+            // A genuine gap between what was owed and what actually landed is a
+            // partial payment, not a full settlement - counting the full amount as
+            // collected overstates cash in hand, and dropping to Pending loses the
+            // part that DID come in.
+            //
+            // Only unambiguous column names are trusted for this. A real export
+            // proved why: it carried a bare "Received" / "Remaining Amount" pair
+            // that looked plausible but actually belonged to an unrelated monthly
+            // pivot table bolted onto the same sheet (Month / Targets / Vendor
+            // Cost columns), so row 10's invoice for £908.15 sat next to that
+            // pivot's row 10 values of 2000 / 500 - completely unrelated numbers,
+            // in a different currency, that would have been silently imported as
+            // "this invoice only collected 2000 of 908.15, 500 still owed".
+            // "Remaining Amount" is not read at all for the same reason: nothing
+            // distinguishes a genuine balance-due column from an unrelated one, so
+            // the remaining balance is always derived from netReceived instead of
+            // trusted from a second, independently-fallible column.
+            const declaredNet = pickVal(row, "Net Received", "Amount Received", "Received Amount", "Amount Paid", "Partial Amount");
+
+            let netReceived = 0;
+            let finalStatus = status;
+
+            if (status === "Received" || status === "Partially Paid") {
+              const owedAfterTax = parseFloat((numAmt - taxAmount).toFixed(2));
+              if (declaredNet !== "") {
+                const candidateNet = parseFloat(String(declaredNet).replace(/[^0-9.-]/g, "")) || 0;
+                // A declared figure outside a sane range for THIS invoice (negative,
+                // or wildly larger than what was owed) is not trustworthy as a
+                // same-currency, same-invoice amount.
+                const isSane = candidateNet >= 0 && candidateNet <= owedAfterTax * 1.05 + 0.01;
+                if (isSane) {
+                  netReceived = candidateNet;
+                } else if (status === "Received") {
+                  netReceived = owedAfterTax;
+                } else {
+                  netReceived = 0;
+                }
+              } else if (status === "Received") {
+                netReceived = owedAfterTax;
+              } else {
+                // Explicitly partial with no amount column: keep the status,
+                // do not invent a full settlement.
+                netReceived = 0;
+              }
+
+              const remaining = Math.max(0, Math.round((owedAfterTax - netReceived) * 100) / 100);
+              if (remaining > 0.01) finalStatus = "Partially Paid";
+              else if (netReceived > 0.01) finalStatus = "Received";
+            }
 
             // Honour an explicit due date / terms column instead of always assuming Net 30.
             let dueDate = pickVal(row, "Due Date", "Due on", "Payment Due");
@@ -184,6 +245,16 @@ export function parseExcelFile(file) {
             const termsRaw = String(pickVal(row, "Payment Terms", "Terms") || "").trim();
             const termDays = /(\d+)/.exec(termsRaw) ? Number(/(\d+)/.exec(termsRaw)[1]) : 30;
 
+            const contactPerson = String(
+              pickVal(row, "Contact Person", "Contact Name", "Attn", "Attention") || ""
+            ).trim();
+            const contactEmail = String(
+              pickVal(row, "Email ID", "Email", "Contact Email", "Billing Email") || ""
+            ).trim();
+            if (contactPerson || contactEmail) {
+              noteClientContact(clientName, contactPerson, contactEmail, currency);
+            }
+
             return {
               id: `inv-import-${Date.now()}-${idx}`,
               invoiceNo,
@@ -193,10 +264,10 @@ export function parseExcelFile(file) {
               paymentMode: paymentMode || "Online",
               raisedOn: raisedOn || toISODate(new Date()),
               invoicedMonth: invoicedMonth || "January",
-              status,
               receivedOn: receivedOn || "",
               paymentTerms: termsRaw || `Net ${termDays}`,
               dueDate: dueDate || (raisedOn ? toISODate(new Date(new Date(raisedOn).getTime() + termDays * 86400000)) : ""),
+              status: finalStatus,
               taxRate,
               taxAmount,
               netReceived,
@@ -205,12 +276,23 @@ export function parseExcelFile(file) {
           })
           .filter(Boolean);
 
-        resolve({
+        return {
           parsedInvoices,
+          parsedClients: Array.from(clientContacts.values()),
           sheetName: chosenSheetName,
-          totalRows: parsedInvoices.length,
-          fileName: file.name
-        });
+          totalRows: parsedInvoices.length
+        };
+}
+
+export function parseExcelFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: "array", cellDates: true });
+        resolve({ ...parseWorkbook(workbook), fileName: file.name });
       } catch (err) {
         reject(err);
       }

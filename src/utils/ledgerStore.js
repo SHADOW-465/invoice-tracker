@@ -312,6 +312,70 @@ export async function ledgerStats() {
   }
 }
 
+const knownEventIds = new Set();
+
+export function loadLocalChangeEvents() {
+  const r = safeRead(STORAGE_KEYS.CHANGE_EVENTS);
+  const list = r.status === "ok" && Array.isArray(r.value) ? r.value : [];
+  list.forEach((e) => {
+    if (e?.id) knownEventIds.add(e.id);
+  });
+  return list;
+}
+
+export function persistLocalChangeEvents(events) {
+  const r = safeWrite(STORAGE_KEYS.CHANGE_EVENTS, events);
+  return r.ok ? { ok: true } : { ok: false, kind: r.kind, detail: r.error?.message };
+}
+
+export async function loadChangeEvents(workspaceId) {
+  if (isDesktop()) {
+    try {
+      const rows = unwrap(
+        await window.ledgerAPI.listChangeEvents(workspaceId),
+        "reading history"
+      );
+      if (Array.isArray(rows) && rows.length) {
+        rows.forEach((e) => {
+          if (e?.id) knownEventIds.add(e.id);
+        });
+        return rows;
+      }
+    } catch {
+      /* fall through to the browser copy */
+    }
+  }
+  const all = loadLocalChangeEvents();
+  if (!workspaceId) return all;
+  return all.filter((e) => e.workspaceId === workspaceId);
+}
+
+export async function persistChangeEvents(events, appended = []) {
+  persistLocalChangeEvents(events);
+  const source = appended.length ? appended : events;
+  const fresh = (source || []).filter((e) => e?.id && !knownEventIds.has(e.id));
+  fresh.forEach((e) => knownEventIds.add(e.id));
+  if (isDesktop() && fresh.length) {
+    try {
+      unwrap(await window.ledgerAPI.appendChangeEvents(fresh), "saving history");
+    } catch {
+      /* browser copy is the fallback */
+    }
+  }
+  return { ok: true };
+}
+
+export async function persistChangeEventUndone(id, undone) {
+  if (isDesktop()) {
+    try {
+      unwrap(await window.ledgerAPI.markChangeEventUndone(id, undone), "updating history");
+    } catch {
+      /* browser copy is the fallback */
+    }
+  }
+  return { ok: true };
+}
+
 /* ------------------------------------------------------------------ diff */
 
 const fingerprint = (inv) => JSON.stringify([
