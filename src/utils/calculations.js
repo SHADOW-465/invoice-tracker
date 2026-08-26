@@ -544,3 +544,311 @@ export function getUsedCurrencies(invoices = []) {
   });
   return Array.from(codes).sort();
 }
+
+/**
+ * Calculate client portfolio rankings, concentration risk, and payment reliability.
+ */
+export function calculateClientPortfolio(invoices = [], baseCurrency = "USD", rates = {}) {
+  const clientMap = new Map();
+  let grandTotalBilled = 0;
+  let grandTotalCollected = 0;
+  let grandTotalOutstanding = 0;
+
+  invoices.forEach((inv) => {
+    if (isTerminalStatus(inv.status)) return;
+    const name = String(inv.clientName || "Unnamed Client").trim();
+    const curr = inv.currency || "USD";
+    const amount = Number(inv.amount || 0);
+    const baseAmt = convertToBaseCurrency(amount, curr, baseCurrency, rates);
+    const aging = calculateAging(inv);
+    const eff = getEffectiveStatus(inv);
+
+    grandTotalBilled += baseAmt;
+
+    let row = clientMap.get(name);
+    if (!row) {
+      row = {
+        name,
+        totalBilled: 0,
+        totalCollected: 0,
+        totalPending: 0,
+        totalOverdue: 0,
+        invoiceCount: 0,
+        settledCount: 0,
+        overdueCount: 0,
+        totalCollectionDays: 0,
+        avgDaysToCollect: null,
+        reliability: "Pending",
+        currency: curr
+      };
+      clientMap.set(name, row);
+    }
+
+    row.totalBilled += baseAmt;
+    row.invoiceCount += 1;
+
+    if (eff === "Received") {
+      const netBase = convertToBaseCurrency(Number(inv.netReceived || amount), curr, baseCurrency, rates);
+      row.totalCollected += netBase;
+      row.settledCount += 1;
+      grandTotalCollected += netBase;
+      if (aging.daysToCollect !== null) {
+        row.totalCollectionDays += aging.daysToCollect;
+      }
+    } else if (isPartiallyPaid(inv.status)) {
+      const recBase = convertToBaseCurrency(Number(inv.netReceived || 0), curr, baseCurrency, rates);
+      const balBase = convertToBaseCurrency(getBalanceDue(inv), curr, baseCurrency, rates);
+      row.totalCollected += recBase;
+      grandTotalCollected += recBase;
+      grandTotalOutstanding += balBase;
+      if (aging.isOverdue) {
+        row.totalOverdue += balBase;
+        row.overdueCount += 1;
+      } else {
+        row.totalPending += balBase;
+      }
+    } else if (isReceivable(inv)) {
+      grandTotalOutstanding += baseAmt;
+      if (aging.isOverdue && !isOnHold(inv.status)) {
+        row.totalOverdue += baseAmt;
+        row.overdueCount += 1;
+      } else {
+        row.totalPending += baseAmt;
+      }
+    }
+  });
+
+  const clients = Array.from(clientMap.values()).map((c) => {
+    const avgDays = c.settledCount > 0 ? Math.round(c.totalCollectionDays / c.settledCount) : null;
+    let reliability = "No History";
+    let reliabilityClass = "reliability-neutral";
+
+    if (avgDays !== null) {
+      if (avgDays <= 15) {
+        reliability = "Fast Payer (<15d)";
+        reliabilityClass = "reliability-fast";
+      } else if (avgDays <= 35) {
+        reliability = "Standard (<35d)";
+        reliabilityClass = "reliability-standard";
+      } else {
+        reliability = "Slow Payer (>35d)";
+        reliabilityClass = "reliability-slow";
+      }
+    } else if (c.overdueCount > 0) {
+      reliability = "Overdue Risk";
+      reliabilityClass = "reliability-risk";
+    }
+
+    const sharePct = grandTotalBilled > 0 ? ((c.totalBilled / grandTotalBilled) * 100).toFixed(1) : "0.0";
+
+    return {
+      ...c,
+      avgDaysToCollect: avgDays,
+      reliability,
+      reliabilityClass,
+      sharePct: parseFloat(sharePct),
+      totalOutstanding: c.totalPending + c.totalOverdue
+    };
+  });
+
+  // Sort by total billed descending
+  clients.sort((a, b) => b.totalBilled - a.totalBilled);
+
+  // Calculate top 3 client concentration ratio
+  const top3Total = clients.slice(0, 3).reduce((acc, c) => acc + c.totalBilled, 0);
+  const top3ConcentrationPct = grandTotalBilled > 0 ? Math.round((top3Total / grandTotalBilled) * 100) : 0;
+
+  return {
+    clients,
+    clientCount: clients.length,
+    grandTotalBilled,
+    grandTotalCollected,
+    grandTotalOutstanding,
+    top3ConcentrationPct
+  };
+}
+
+/**
+ * Detailed Accounts Receivable (AR) aging analysis across 5 time buckets.
+ */
+export function calculateAgingDetails(invoices = [], baseCurrency = "USD", rates = {}) {
+  const buckets = {
+    current: { label: "Current (Within Terms)", amount: 0, count: 0, key: "current" },
+    days1_30: { label: "1–30 Days Overdue", amount: 0, count: 0, key: "1-30" },
+    days31_60: { label: "31–60 Days Overdue", amount: 0, count: 0, key: "31-60" },
+    days61_90: { label: "61–90 Days Overdue", amount: 0, count: 0, key: "61-90" },
+    days90Plus: { label: "90+ Days Overdue (Critical)", amount: 0, count: 0, key: "90+" }
+  };
+
+  let totalOutstanding = 0;
+  let totalOverdue = 0;
+  const criticalInvoices = [];
+
+  invoices.forEach((inv) => {
+    if (isTerminalStatus(inv.status) || inv.status === "Received") return;
+    const curr = inv.currency || "USD";
+    const aging = calculateAging(inv);
+    const bal = isPartiallyPaid(inv.status) ? getBalanceDue(inv) : Number(inv.amount || 0);
+    const baseBal = convertToBaseCurrency(bal, curr, baseCurrency, rates);
+
+    if (baseBal <= 0) return;
+    totalOutstanding += baseBal;
+
+    if (aging.isOverdue && !isOnHold(inv.status)) {
+      totalOverdue += baseBal;
+      criticalInvoices.push({
+        ...inv,
+        baseBalance: baseBal,
+        overdueDays: aging.overdueDays
+      });
+
+      if (aging.overdueDays <= 30) {
+        buckets.days1_30.amount += baseBal;
+        buckets.days1_30.count += 1;
+      } else if (aging.overdueDays <= 60) {
+        buckets.days31_60.amount += baseBal;
+        buckets.days31_60.count += 1;
+      } else if (aging.overdueDays <= 90) {
+        buckets.days61_90.amount += baseBal;
+        buckets.days61_90.count += 1;
+      } else {
+        buckets.days90Plus.amount += baseBal;
+        buckets.days90Plus.count += 1;
+      }
+    } else {
+      buckets.current.amount += baseBal;
+      buckets.current.count += 1;
+    }
+  });
+
+  // Sort critical overdue invoices by most overdue first
+  criticalInvoices.sort((a, b) => b.overdueDays - a.overdueDays);
+
+  const bucketList = Object.values(buckets).map((b) => ({
+    ...b,
+    pct: totalOutstanding > 0 ? Math.round((b.amount / totalOutstanding) * 100) : 0
+  }));
+
+  return {
+    bucketList,
+    totalOutstanding,
+    totalOverdue,
+    overduePct: totalOutstanding > 0 ? Math.round((totalOverdue / totalOutstanding) * 100) : 0,
+    criticalInvoices: criticalInvoices.slice(0, 8)
+  };
+}
+
+/**
+ * Cash Inflow Forecast based on upcoming invoice due dates.
+ */
+export function calculateCashForecast(invoices = [], baseCurrency = "USD", rates = {}) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const slots = {
+    thisWeek: { label: "Due This Week (1–7d)", amount: 0, count: 0 },
+    nextWeek: { label: "Due Next Week (8–14d)", amount: 0, count: 0 },
+    in30Days: { label: "Due in 15–30 Days", amount: 0, count: 0 },
+    later: { label: "Due Later (>30d)", amount: 0, count: 0 },
+    overdue: { label: "Past Due", amount: 0, count: 0 }
+  };
+
+  let totalForecastInflow = 0;
+
+  invoices.forEach((inv) => {
+    if (isTerminalStatus(inv.status) || inv.status === "Received") return;
+    const curr = inv.currency || "USD";
+    const bal = isPartiallyPaid(inv.status) ? getBalanceDue(inv) : Number(inv.amount || 0);
+    const baseBal = convertToBaseCurrency(bal, curr, baseCurrency, rates);
+
+    if (baseBal <= 0) return;
+
+    const dueDate = inv.dueDate ? new Date(inv.dueDate) : null;
+    if (dueDate) dueDate.setHours(0, 0, 0, 0);
+
+    if (!dueDate || isNaN(dueDate.getTime())) {
+      slots.later.amount += baseBal;
+      slots.later.count += 1;
+      totalForecastInflow += baseBal;
+      return;
+    }
+
+    const diffDays = Math.round((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) {
+      slots.overdue.amount += baseBal;
+      slots.overdue.count += 1;
+    } else if (diffDays <= 7) {
+      slots.thisWeek.amount += baseBal;
+      slots.thisWeek.count += 1;
+      totalForecastInflow += baseBal;
+    } else if (diffDays <= 14) {
+      slots.nextWeek.amount += baseBal;
+      slots.nextWeek.count += 1;
+      totalForecastInflow += baseBal;
+    } else if (diffDays <= 30) {
+      slots.in30Days.amount += baseBal;
+      slots.in30Days.count += 1;
+      totalForecastInflow += baseBal;
+    } else {
+      slots.later.amount += baseBal;
+      slots.later.count += 1;
+      totalForecastInflow += baseBal;
+    }
+  });
+
+  return {
+    slots: Object.entries(slots).map(([key, data]) => ({
+      key,
+      ...data,
+      pct: totalForecastInflow > 0 && key !== "overdue" ? Math.round((data.amount / totalForecastInflow) * 100) : 0
+    })),
+    totalForecastInflow
+  };
+}
+
+/**
+ * Breakdown of billing and settlements by Payment Channel / Mode.
+ */
+export function calculatePaymentChannels(invoices = [], baseCurrency = "USD", rates = {}) {
+  const channelMap = new Map();
+  let totalBilled = 0;
+
+  invoices.forEach((inv) => {
+    if (isTerminalStatus(inv.status)) return;
+    const mode = String(inv.paymentMode || "Direct Transfer").trim();
+    const curr = inv.currency || "USD";
+    const amount = Number(inv.amount || 0);
+    const baseAmt = convertToBaseCurrency(amount, curr, baseCurrency, rates);
+    const eff = getEffectiveStatus(inv);
+
+    totalBilled += baseAmt;
+
+    let row = channelMap.get(mode);
+    if (!row) {
+      row = { mode, totalBilled: 0, totalCollected: 0, count: 0 };
+      channelMap.set(mode, row);
+    }
+
+    row.totalBilled += baseAmt;
+    row.count += 1;
+
+    if (eff === "Received") {
+      const netBase = convertToBaseCurrency(Number(inv.netReceived || amount), curr, baseCurrency, rates);
+      row.totalCollected += netBase;
+    } else if (isPartiallyPaid(inv.status)) {
+      const recBase = convertToBaseCurrency(Number(inv.netReceived || 0), curr, baseCurrency, rates);
+      row.totalCollected += recBase;
+    }
+  });
+
+  const channels = Array.from(channelMap.values()).map((c) => ({
+    ...c,
+    sharePct: totalBilled > 0 ? Math.round((c.totalBilled / totalBilled) * 100) : 0
+  }));
+
+  channels.sort((a, b) => b.totalBilled - a.totalBilled);
+
+  return { channels, totalBilled };
+}
+

@@ -948,6 +948,675 @@ button {
 }
 
 /* ==========================================================================
+   ANALYTICS HUB & ADVANCED INTELLIGENCE
+   ========================================================================== */
+.analytics-hub-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  animation: fadeIn 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.analytics-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.25rem 0.35rem;
+  overflow-x: auto;
+}
+
+.analytics-tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: none;
+  color: var(--ink-secondary);
+  font-family: inherit;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition-fast);
+}
+
+.analytics-tab-btn:hover {
+  background-color: var(--bg-surface-hover);
+  color: var(--ink-primary);
+}
+
+.analytics-tab-btn.is-active {
+  background-color: var(--brand-surface);
+  color: var(--brand-primary);
+  font-weight: 700;
+}
+
+.analytics-card-desc {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--ink-muted);
+  line-height: 1.35;
+}
+
+/* --- 1. AR AGING STYLES --- */
+.aging-analytics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  animation: fadeIn 150ms ease-out;
+}
+
+@media (max-width: 900px) {
+  .aging-analytics-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.aging-stacked-bar {
+  width: 100%;
+  height: 10px;
+  background: var(--bg-surface-elevated);
+  border-radius: var(--radius-full);
+  display: flex;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+}
+
+.aging-stacked-segment {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.aging-seg-current { background: var(--status-received-text); }
+.aging-seg-1-30 { background: oklch(0.68 0.15 85); }
+.aging-seg-31-60 { background: oklch(0.62 0.18 55); }
+.aging-seg-61-90 { background: oklch(0.55 0.20 35); }
+.aging-seg-90\+ { background: var(--status-overdue-text); }
+
+.aging-buckets-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.aging-bucket-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.aging-bucket-row:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+  transform: translateX(2px);
+}
+
+.aging-bucket-info {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.aging-indicator-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.aging-dot-current { background: var(--status-received-text); }
+.aging-dot-1-30 { background: oklch(0.68 0.15 85); }
+.aging-dot-31-60 { background: oklch(0.62 0.18 55); }
+.aging-dot-61-90 { background: oklch(0.55 0.20 35); }
+.aging-dot-90\+ { background: var(--status-overdue-text); }
+
+.aging-bucket-name {
+  font-weight: 600;
+  color: var(--ink-primary);
+}
+
+.aging-bucket-count {
+  color: var(--ink-muted);
+  font-size: 0.65rem;
+}
+
+.aging-bucket-values {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.aging-bucket-amount {
+  font-weight: 700;
+  color: var(--ink-primary);
+}
+
+.aging-bucket-pct {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--ink-muted);
+  min-width: 28px;
+  text-align: right;
+}
+
+.aging-summary-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--text-xs);
+}
+
+.aging-footer-label {
+  color: var(--ink-muted);
+}
+
+/* Priority Collections List */
+.critical-invoices-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.critical-invoice-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.45rem 0.65rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  font-size: var(--text-xs);
+  transition: all var(--transition-fast);
+}
+
+.critical-invoice-item:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+}
+
+.critical-invoice-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.critical-invoice-client {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--ink-primary);
+}
+
+.critical-invoice-no {
+  font-size: 0.65rem;
+  color: var(--ink-muted);
+  font-family: var(--font-mono, monospace);
+}
+
+.critical-invoice-dates {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.68rem;
+  color: var(--ink-muted);
+}
+
+.critical-overdue-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  color: var(--status-overdue-text);
+  font-weight: 700;
+  background: var(--status-overdue-bg);
+  border: 1px solid var(--status-overdue-border);
+  padding: 0 4px;
+  border-radius: var(--radius-xs);
+}
+
+.critical-invoice-amount {
+  font-weight: 800;
+  font-size: var(--text-sm);
+  color: var(--status-overdue-text);
+}
+
+.analytics-empty-state {
+  text-align: center;
+  padding: 2rem 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.empty-state-icon {
+  font-size: 1.6rem;
+  margin-bottom: 0.2rem;
+}
+
+/* --- 2. CLIENT PORTFOLIO STYLES --- */
+.client-portfolio-grid {
+  display: grid;
+  grid-template-columns: 5fr 7fr;
+  gap: 0.75rem;
+  animation: fadeIn 150ms ease-out;
+}
+
+@media (max-width: 960px) {
+  .client-portfolio-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.concentration-meter-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.concentration-meter-track {
+  width: 100%;
+  height: 8px;
+  background: var(--bg-surface-elevated);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+}
+
+.concentration-meter-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  transition: width 0.35s ease;
+}
+
+.concentration-meter-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.62rem;
+  color: var(--ink-muted);
+  font-weight: 600;
+}
+
+.top-clients-quick-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+}
+
+.top-client-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.top-client-item:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+  transform: translateX(2px);
+}
+
+.top-client-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.top-client-rank {
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: var(--ink-muted);
+  min-width: 18px;
+}
+
+.client-avatar-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 0.75rem;
+  border: 1px solid transparent;
+  flex-shrink: 0;
+}
+
+.client-avatar-badge-sm {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 0.65rem;
+  border: 1px solid transparent;
+  flex-shrink: 0;
+}
+
+.top-client-name {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--ink-primary);
+}
+
+.top-client-sub {
+  font-size: 0.65rem;
+  color: var(--ink-muted);
+}
+
+.top-client-right {
+  font-weight: 800;
+  font-size: var(--text-sm);
+  color: var(--ink-primary);
+}
+
+.client-leaderboard-scroll {
+  max-height: 290px;
+  overflow-y: auto;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+.client-leaderboard-table {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.client-leaderboard-header {
+  display: grid;
+  grid-template-columns: 3.5fr 2fr 2fr 2fr 2.5fr;
+  padding: 0.45rem 0.6rem;
+  background: var(--bg-surface-elevated);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.client-leaderboard-row {
+  display: grid;
+  grid-template-columns: 3.5fr 2fr 2fr 2fr 2.5fr;
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: var(--text-xs);
+  align-items: center;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.client-leaderboard-row:last-child {
+  border-bottom: none;
+}
+
+.client-leaderboard-row:hover {
+  background-color: var(--bg-surface-hover);
+}
+
+.client-leaderboard-cell-name {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  overflow: hidden;
+}
+
+.client-row-title {
+  font-weight: 700;
+  color: var(--ink-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.client-leaderboard-cell {
+  color: var(--ink-secondary);
+}
+
+.client-leaderboard-cell.is-collected {
+  color: var(--status-received-text);
+  font-weight: 600;
+}
+
+.reliability-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  font-size: 0.62rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.reliability-fast {
+  background: var(--status-received-bg);
+  color: var(--status-received-text);
+  border: 1px solid var(--status-received-border);
+}
+
+.reliability-standard {
+  background: var(--bg-surface-elevated);
+  color: var(--ink-primary);
+  border: 1px solid var(--border-strong);
+}
+
+.reliability-slow {
+  background: var(--status-pending-bg);
+  color: var(--status-pending-text);
+  border: 1px solid var(--status-pending-border);
+}
+
+.reliability-risk {
+  background: var(--status-overdue-bg);
+  color: var(--status-overdue-text);
+  border: 1px solid var(--status-overdue-border);
+}
+
+.reliability-neutral {
+  background: var(--bg-surface-elevated);
+  color: var(--ink-muted);
+  border: 1px solid var(--border-subtle);
+}
+
+/* --- 3. CASH INFLOW FORECAST & MODES STYLES --- */
+.forecast-analytics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  animation: fadeIn 150ms ease-out;
+}
+
+@media (max-width: 900px) {
+  .forecast-analytics-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.forecast-timeline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.forecast-timeline-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.forecast-timeline-card:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+  transform: translateX(2px);
+}
+
+.forecast-card-overdue {
+  border-color: var(--status-overdue-border);
+  background: var(--status-overdue-bg);
+}
+
+.forecast-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.forecast-slot-label {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--ink-primary);
+}
+
+.forecast-slot-count {
+  font-size: 0.65rem;
+  color: var(--ink-muted);
+}
+
+.forecast-card-body {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.forecast-slot-amount {
+  font-size: var(--text-sm);
+  font-weight: 800;
+  color: var(--ink-primary);
+}
+
+.forecast-card-overdue .forecast-slot-amount {
+  color: var(--status-overdue-text);
+}
+
+.forecast-slot-pct {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.forecast-progress-bar {
+  width: 100%;
+  height: 4px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.forecast-progress-fill {
+  height: 100%;
+  background: var(--brand-primary);
+  border-radius: var(--radius-full);
+  transition: width 0.3s ease;
+}
+
+.payment-channels-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.payment-channel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  gap: 0.75rem;
+}
+
+.payment-channel-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.payment-channel-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--text-xs);
+  color: var(--ink-primary);
+}
+
+.payment-channel-count {
+  font-size: 0.65rem;
+  color: var(--ink-muted);
+}
+
+.payment-channel-bar {
+  width: 100%;
+  height: 5px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.payment-channel-bar-fill {
+  height: 100%;
+  background: var(--status-pending-text);
+  border-radius: var(--radius-full);
+  transition: width 0.3s ease;
+}
+
+.payment-channel-amounts {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.payment-channel-billed {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--ink-primary);
+}
+
+.payment-channel-collected {
+  font-size: 0.65rem;
+}
+
+.payment-channel-collected.is-collected {
+  color: var(--status-received-text);
+  font-weight: 600;
+}
+
+
+/* ==========================================================================
    TABLE TOOLBAR & SEGMENTED TABS
    ========================================================================== */
 .ledger-header-bar {

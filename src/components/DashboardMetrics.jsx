@@ -11,13 +11,21 @@ import {
   ChevronUp,
   Receipt,
   Percent,
-  Timer
+  Timer,
+  Users,
+  Calendar,
+  PieChart
 } from "lucide-react";
 import { calculateFinancialMetrics, formatCurrency, getEffectiveStatus, calculateAging, isPartiallyPaid, isOnHold, getChartYears, buildChartSeries } from "../utils/calculations";
 import { CustomSelect } from "./CustomSelect";
 import { TrendChart } from "./TrendChart";
+import { AgingAnalytics } from "./AgingAnalytics";
+import { ClientPortfolioAnalytics } from "./ClientPortfolioAnalytics";
+import { ForecastAnalytics } from "./ForecastAnalytics";
 
 export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onShowToast }) {
+  const [activeTab, setActiveTab] = useState("trends");
+
   const metrics = useMemo(() => {
     return calculateFinancialMetrics(store.invoices, store.baseCurrency, store.settings?.exchangeRates);
   }, [store.invoices, store.baseCurrency, store.settings?.exchangeRates]);
@@ -40,8 +48,7 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
     return Object.entries(metrics.currencyBreakdown || {});
   }, [metrics.currencyBreakdown]);
 
-  // Year-aware, exactly like the standalone analytics chart. Without this the
-  // strip would try to paint one column per month across the whole ledger.
+  // Year-aware, exactly like the standalone analytics chart.
   const [chartYear, setChartYear] = useState("latest");
 
   const chartYears = useMemo(() => getChartYears(chartMetrics.monthlyData), [chartMetrics.monthlyData]);
@@ -75,16 +82,11 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
 
   const hasOverdue = metrics.totalOverdueBase > 0;
   const hasPending = metrics.totalPendingBase > 0;
-  // Both derived from the shared helper. These previously used a local date test
-  // that counted cancelled and draft invoices, so the KPI card and the ledger tab
-  // badge reported different overdue totals.
   const countedInvoices = store.invoices.length - (metrics.voidedCount || 0);
   const settledCount = store.invoices.filter((i) => getEffectiveStatus(i) === "Received").length;
   const overdueCount = store.invoices.filter((i) => {
     if (isOnHold(i.status)) return false;
     if (getEffectiveStatus(i) === "Overdue") return true;
-    // Partially Paid keeps its own label, but a past-due remaining balance
-    // still belongs in the overdue count on this card.
     return isPartiallyPaid(i.status) && calculateAging(i).isOverdue;
   }).length;
 
@@ -108,6 +110,17 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
     scrollToTable();
   };
 
+  const handleClientFilter = (clientName) => {
+    if (store.clientFilter === clientName) {
+      store.setClientFilter("all");
+      if (onShowToast) onShowToast("Cleared client filter", "info");
+    } else {
+      store.setClientFilter(clientName);
+      if (onShowToast) onShowToast(`Filtered by client: ${clientName}`, "info");
+    }
+    scrollToTable();
+  };
+
   return (
     <div className="metrics-dashboard-wrapper">
       {/* 1. Header with Base Currency & Analytics Toggle */}
@@ -123,10 +136,10 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
           className="btn btn-ghost btn-sm"
           onClick={onToggleAnalytics}
           aria-expanded={showAnalytics}
-          title={showAnalytics ? "Collapse charts" : "Expand velocity charts"}
+          title={showAnalytics ? "Collapse analytics hub" : "Expand analytics hub"}
         >
           <BarChart3 size={13} />
-          <span>{showAnalytics ? "Hide Analytics" : "Show Analytics"}</span>
+          <span>{showAnalytics ? "Hide Analytics Hub" : "Financial Analytics Hub"}</span>
           {showAnalytics ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
         </button>
       </div>
@@ -337,92 +350,158 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
         </div>
       </div>
 
-      {/* 4. Expandable Analytics Section */}
+      {/* 4. Expandable Advanced Analytics Hub */}
       {showAnalytics && (
-        <div className="analytics-expandable-grid">
-          {/* Chart Card */}
-          <div className="analytics-card">
-            <div className="analytics-card-header">
-              <span className="analytics-card-title">
-                {activeYear === "all" ? "Yearly" : "Monthly"} amounts: billed vs collected
-                {chartClient !== "all" ? ` · ${chartClient}` : ""}
-              </span>
-              <div className="analytics-legend">
-                <CustomSelect
-                  value={chartClient}
-                  onChange={(val) => {
-                    setChartClient(val);
-                    setChartYear("latest");
-                  }}
-                  options={clientOptions}
-                  size="sm"
-                  searchable
-                  searchPlaceholder="Search clients"
-                />
-                {chartYears.length > 0 && (
-                  <CustomSelect
-                    value={activeYear === "all" ? "all" : String(activeYear)}
-                    onChange={(val) => setChartYear(val === "all" ? "all" : Number(val))}
-                    options={yearOptions}
-                    size="sm"
-                  />
-                )}
-                <span className="analytics-legend-item">
-                  <span className="analytics-dot" style={{ background: "var(--chart-bar-invoiced)" }} />
-                  Billed
-                </span>
-                <span className="analytics-legend-item">
-                  <span className="analytics-dot" style={{ background: "var(--chart-bar-collected)" }} />
-                  Collected
-                </span>
-              </div>
-            </div>
-            <p style={{ margin: "0 0 0.5rem", fontSize: "0.68rem", color: "var(--ink-muted)" }}>
-              Amounts in {store.baseCurrency}. Billed uses the invoice date; collected uses the payment date.
-            </p>
-            <TrendChart series={chartSeries} currency={store.baseCurrency} />
+        <div className="analytics-hub-container">
+          {/* Analytics Hub Sub-navigation */}
+          <div className="analytics-tab-bar">
+            <button
+              type="button"
+              className={`analytics-tab-btn ${activeTab === "trends" ? "is-active" : ""}`}
+              onClick={() => setActiveTab("trends")}
+            >
+              <BarChart3 size={14} />
+              <span>Cash Flow Trends</span>
+            </button>
+            <button
+              type="button"
+              className={`analytics-tab-btn ${activeTab === "aging" ? "is-active" : ""}`}
+              onClick={() => setActiveTab("aging")}
+            >
+              <Clock size={14} />
+              <span>AR Aging & Risk</span>
+            </button>
+            <button
+              type="button"
+              className={`analytics-tab-btn ${activeTab === "clients" ? "is-active" : ""}`}
+              onClick={() => setActiveTab("clients")}
+            >
+              <Users size={14} />
+              <span>Client Intelligence</span>
+            </button>
+            <button
+              type="button"
+              className={`analytics-tab-btn ${activeTab === "forecast" ? "is-active" : ""}`}
+              onClick={() => setActiveTab("forecast")}
+            >
+              <Calendar size={14} />
+              <span>Inflow Forecast & Modes</span>
+            </button>
           </div>
 
-          {/* Currency Allocation Card */}
-          <div className="analytics-card">
-            <div className="analytics-card-header">
-              <span className="analytics-card-title">Portfolio Currency Allocation</span>
-              <span style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>
-                {currencyEntries.length} Active Currencies
-              </span>
-            </div>
-
-            <div className="analytics-currency-list">
-              {currencyEntries.map(([code, stats]) => (
-                <div key={code} className="analytics-currency-row">
-                  <div className="analytics-currency-info">
-                    <span className={`currency-tag currency-tag-${code.toLowerCase()}`}>
-                      {code}
+          {/* TAB 1: Trends & Currency Allocation */}
+          {activeTab === "trends" && (
+            <div className="analytics-expandable-grid">
+              {/* Chart Card */}
+              <div className="analytics-card">
+                <div className="analytics-card-header">
+                  <span className="analytics-card-title">
+                    {activeYear === "all" ? "Yearly" : "Monthly"} amounts: billed vs collected
+                    {chartClient !== "all" ? ` · ${chartClient}` : ""}
+                  </span>
+                  <div className="analytics-legend">
+                    <CustomSelect
+                      value={chartClient}
+                      onChange={(val) => {
+                        setChartClient(val);
+                        setChartYear("latest");
+                      }}
+                      options={clientOptions}
+                      size="sm"
+                      searchable
+                      searchPlaceholder="Search clients"
+                    />
+                    {chartYears.length > 0 && (
+                      <CustomSelect
+                        value={activeYear === "all" ? "all" : String(activeYear)}
+                        onChange={(val) => setChartYear(val === "all" ? "all" : Number(val))}
+                        options={yearOptions}
+                        size="sm"
+                      />
+                    )}
+                    <span className="analytics-legend-item">
+                      <span className="analytics-dot" style={{ background: "var(--chart-bar-invoiced)" }} />
+                      Billed
                     </span>
-                    <span style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>
-                      {stats.count} {stats.count === 1 ? "invoice" : "invoices"}
+                    <span className="analytics-legend-item">
+                      <span className="analytics-dot" style={{ background: "var(--chart-bar-collected)" }} />
+                      Collected
                     </span>
-                  </div>
-                  <div className="analytics-currency-amounts">
-                    <div className="analytics-currency-metric">
-                      <span className="mono-num">{formatCurrency(stats.total, code)}</span>
-                      <span className="analytics-currency-metric-label">billed</span>
-                    </div>
-                    <div className="analytics-currency-metric is-collected">
-                      <span className="mono-num">{formatCurrency(stats.received || 0, code)}</span>
-                      <span className="analytics-currency-metric-label">collected</span>
-                    </div>
                   </div>
                 </div>
-              ))}
+                <p style={{ margin: "0 0 0.5rem", fontSize: "0.68rem", color: "var(--ink-muted)" }}>
+                  Amounts in {store.baseCurrency}. Billed uses the invoice date; collected uses the payment date.
+                </p>
+                <TrendChart series={chartSeries} currency={store.baseCurrency} />
+              </div>
 
-              {currencyEntries.length === 0 && (
-                <div className="analytics-empty">No currencies active</div>
-              )}
+              {/* Currency Allocation Card */}
+              <div className="analytics-card">
+                <div className="analytics-card-header">
+                  <span className="analytics-card-title">Portfolio Currency Allocation</span>
+                  <span style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>
+                    {currencyEntries.length} Active Currencies
+                  </span>
+                </div>
+
+                <div className="analytics-currency-list">
+                  {currencyEntries.map(([code, stats]) => (
+                    <div key={code} className="analytics-currency-row">
+                      <div className="analytics-currency-info">
+                        <span className={`currency-tag currency-tag-${code.toLowerCase()}`}>
+                          {code}
+                        </span>
+                        <span style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>
+                          {stats.count} {stats.count === 1 ? "invoice" : "invoices"}
+                        </span>
+                      </div>
+                      <div className="analytics-currency-amounts">
+                        <div className="analytics-currency-metric">
+                          <span className="mono-num">{formatCurrency(stats.total, code)}</span>
+                          <span className="analytics-currency-metric-label">billed</span>
+                        </div>
+                        <div className="analytics-currency-metric is-collected">
+                          <span className="mono-num">{formatCurrency(stats.received || 0, code)}</span>
+                          <span className="analytics-currency-metric-label">collected</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  {currencyEntries.length === 0 && (
+                    <div className="analytics-empty">No currencies active</div>
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* TAB 2: Accounts Receivable Aging Analysis */}
+          {activeTab === "aging" && (
+            <AgingAnalytics
+              store={store}
+              onSelectFilter={(filter) => handleFilterClick(filter, `Filtered to ${filter} invoices`, "info")}
+            />
+          )}
+
+          {/* TAB 3: Client Portfolio Rankings & Reliability */}
+          {activeTab === "clients" && (
+            <ClientPortfolioAnalytics
+              store={store}
+              onSelectClient={handleClientFilter}
+            />
+          )}
+
+          {/* TAB 4: Inflow Forecast & Settlement Channels */}
+          {activeTab === "forecast" && (
+            <ForecastAnalytics
+              store={store}
+              onSelectFilter={(filter) => handleFilterClick(filter, `Filtered to ${filter} invoices`, "info")}
+            />
+          )}
         </div>
       )}
     </div>
   );
 }
+
