@@ -15,19 +15,17 @@ if (fs.existsSync(distAssetsDir)) {
       const filePath = path.join(distAssetsDir, file);
       const code = fs.readFileSync(filePath, 'utf8');
 
-      console.log(`  🛡️  Obfuscating AST for ${file}...`);
+      console.log(`  🛡️  Obfuscating bundle ${file}...`);
       const obfuscationResult = JavaScriptObfuscator.obfuscate(code, {
         compact: true,
-        controlFlowFlattening: true,
-        controlFlowFlatteningThreshold: 0.75,
+        controlFlowFlattening: false,
         deadCodeInjection: false,
-        numbersToExpressions: true,
+        numbersToExpressions: false,
         simplify: true,
-        splitStrings: true,
-        splitStringsChunkLength: 6,
+        splitStrings: false,
         stringArray: true,
         stringArrayEncoding: ['base64'],
-        stringArrayThreshold: 0.8,
+        stringArrayThreshold: 0.75,
         transformObjectKeys: true,
         unicodeEscapeSequence: false,
         disableConsoleOutput: false

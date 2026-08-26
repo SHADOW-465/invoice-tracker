@@ -15,11 +15,26 @@ import {
 } from "lucide-react";
 import { calculateFinancialMetrics, formatCurrency, getEffectiveStatus, calculateAging, isPartiallyPaid, isOnHold, getChartYears, buildChartSeries } from "../utils/calculations";
 import { CustomSelect } from "./CustomSelect";
+import { TrendChart } from "./TrendChart";
 
 export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onShowToast }) {
   const metrics = useMemo(() => {
     return calculateFinancialMetrics(store.invoices, store.baseCurrency, store.settings?.exchangeRates);
   }, [store.invoices, store.baseCurrency, store.settings?.exchangeRates]);
+
+  const [chartClient, setChartClient] = useState("all");
+
+  const chartInvoices = useMemo(() => {
+    if (chartClient === "all") return store.invoices || [];
+    const key = String(chartClient).trim().toLowerCase();
+    return (store.invoices || []).filter(
+      (inv) => String(inv.clientName || "").trim().toLowerCase() === key
+    );
+  }, [store.invoices, chartClient]);
+
+  const chartMetrics = useMemo(() => {
+    return calculateFinancialMetrics(chartInvoices, store.baseCurrency, store.settings?.exchangeRates);
+  }, [chartInvoices, store.baseCurrency, store.settings?.exchangeRates]);
 
   const currencyEntries = useMemo(() => {
     return Object.entries(metrics.currencyBreakdown || {});
@@ -29,7 +44,7 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
   // strip would try to paint one column per month across the whole ledger.
   const [chartYear, setChartYear] = useState("latest");
 
-  const chartYears = useMemo(() => getChartYears(metrics.monthlyData), [metrics.monthlyData]);
+  const chartYears = useMemo(() => getChartYears(chartMetrics.monthlyData), [chartMetrics.monthlyData]);
   const activeYear = chartYear === "latest" ? (chartYears[0] ?? null) : chartYear;
 
   const yearOptions = useMemo(() => {
@@ -39,19 +54,18 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
     ];
   }, [chartYears]);
 
-  const chartSeries = useMemo(
-    () => buildChartSeries(metrics.monthlyData, activeYear),
-    [metrics.monthlyData, activeYear]
-  );
+  const clientOptions = useMemo(() => {
+    const names = store.availableClients || [];
+    return [
+      { value: "all", label: "All clients" },
+      ...names.map((name) => ({ value: name, label: name }))
+    ];
+  }, [store.availableClients]);
 
-  const maxMonthlyVal = useMemo(() => {
-    if (chartSeries.length === 0) return 1000;
-    const maxVal = Math.max(
-      ...chartSeries.map((c) => Math.max(c.invoiced, c.received)),
-      100
-    );
-    return maxVal * 1.15;
-  }, [chartSeries]);
+  const chartSeries = useMemo(
+    () => buildChartSeries(chartMetrics.monthlyData, activeYear),
+    [chartMetrics.monthlyData, activeYear]
+  );
 
   const totalGross = metrics.totalInvoicedBase || 1;
   const realizedPct = ((metrics.totalReceivedBase / totalGross) * 100).toFixed(1);
@@ -331,8 +345,20 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
             <div className="analytics-card-header">
               <span className="analytics-card-title">
                 {activeYear === "all" ? "Yearly" : "Monthly"} amounts: billed vs collected
+                {chartClient !== "all" ? ` · ${chartClient}` : ""}
               </span>
               <div className="analytics-legend">
+                <CustomSelect
+                  value={chartClient}
+                  onChange={(val) => {
+                    setChartClient(val);
+                    setChartYear("latest");
+                  }}
+                  options={clientOptions}
+                  size="sm"
+                  searchable
+                  searchPlaceholder="Search clients"
+                />
                 {chartYears.length > 0 && (
                   <CustomSelect
                     value={activeYear === "all" ? "all" : String(activeYear)}
@@ -352,43 +378,9 @@ export function DashboardMetrics({ store, showAnalytics, onToggleAnalytics, onSh
               </div>
             </div>
             <p style={{ margin: "0 0 0.5rem", fontSize: "0.68rem", color: "var(--ink-muted)" }}>
-              Bar height is {store.baseCurrency} value, not invoice count. Billed uses the invoice date; collected uses the payment date.
+              Amounts in {store.baseCurrency}. Billed uses the invoice date; collected uses the payment date.
             </p>
-
-            {chartSeries.length === 0 ? (
-              <div className="analytics-empty">No invoice activity recorded</div>
-            ) : (
-              <div className="analytics-chart-container">
-                {chartSeries.map((item, idx) => {
-                  const invoicedScale = Math.max(6 / 110, item.invoiced / maxMonthlyVal);
-                  const receivedScale = Math.max(6 / 110, item.received / maxMonthlyVal);
-
-                  return (
-                    <div key={idx} className="analytics-chart-col">
-                      <div className="analytics-bars-pair">
-                        <div
-                          className="analytics-bar"
-                          style={{
-                            "--bar-scale": invoicedScale,
-                            backgroundColor: "var(--chart-bar-invoiced)"
-                          }}
-                          title={`${item.label} billed ${formatCurrency(item.invoiced, store.baseCurrency)} (${item.count} invoices)`}
-                        />
-                        <div
-                          className="analytics-bar"
-                          style={{
-                            "--bar-scale": receivedScale,
-                            backgroundColor: "var(--chart-bar-collected)"
-                          }}
-                          title={`${item.label} collected ${formatCurrency(item.received, store.baseCurrency)} (by payment date)`}
-                        />
-                      </div>
-                      <span className="analytics-chart-label">{item.label}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            <TrendChart series={chartSeries} currency={store.baseCurrency} />
           </div>
 
           {/* Currency Allocation Card */}

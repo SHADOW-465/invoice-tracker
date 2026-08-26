@@ -26,7 +26,8 @@
     "win": {
       "icon": "public/icon.ico",
       "target": [
-        "nsis"
+        "nsis",
+        "portable"
       ],
       "executableName": "Simon & Son Invoice Ledger"
     },
@@ -41,6 +42,9 @@
       "uninstallerIcon": "public/icon.ico",
       "installerHeaderIcon": "public/icon.ico",
       "artifactName": "Simon & Son Invoice Ledger Setup.${ext}"
+    },
+    "portable": {
+      "artifactName": "Simon & Son Invoice Ledger Portable.${ext}"
     },
     "asar": true
   },

@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from "react";
-import { ChevronDown, Check } from "lucide-react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
+import { ChevronDown, Check, Search } from "lucide-react";
 
 export function CustomSelect({
   value,
@@ -10,10 +10,14 @@ export function CustomSelect({
   className = "",
   style = {},
   align = "left",
-  size = "md" // "sm" | "md"
+  size = "md", // "sm" | "md"
+  searchable = false,
+  searchPlaceholder = "Search..."
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const dropdownRef = useRef(null);
+  const searchRef = useRef(null);
 
   // Normalize options
   const normalizedOptions = options.map((opt) => {
@@ -25,6 +29,18 @@ export function CustomSelect({
 
   const selectedOption = normalizedOptions.find((o) => o.value === value);
 
+  const visibleOptions = useMemo(() => {
+    if (!searchable) return normalizedOptions;
+    const q = query.trim().toLowerCase();
+    if (!q) return normalizedOptions;
+    return normalizedOptions.filter((opt) => {
+      const label = String(opt.label || "").toLowerCase();
+      const sub = String(opt.sublabel || "").toLowerCase();
+      const val = String(opt.value || "").toLowerCase();
+      return label.includes(q) || sub.includes(q) || val.includes(q);
+    });
+  }, [normalizedOptions, query, searchable]);
+
   // Close on outside click
   useEffect(() => {
     function handleClickOutside(event) {
@@ -35,12 +51,17 @@ export function CustomSelect({
     if (isOpen) {
       document.addEventListener("mousedown", handleClickOutside);
       document.addEventListener("touchstart", handleClickOutside);
+      if (searchable) {
+        setTimeout(() => searchRef.current?.focus(), 0);
+      }
+    } else {
+      setQuery("");
     }
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("touchstart", handleClickOutside);
     };
-  }, [isOpen]);
+  }, [isOpen, searchable]);
 
   // Handle escape key
   useEffect(() => {
@@ -56,6 +77,7 @@ export function CustomSelect({
   const handleSelect = (optValue) => {
     onChange(optValue);
     setIsOpen(false);
+    setQuery("");
   };
 
   return (
@@ -90,11 +112,34 @@ export function CustomSelect({
 
       {isOpen && (
         <div
-          className={`custom-select-menu custom-select-menu-${align}`}
+          className={`custom-select-menu custom-select-menu-${align}${searchable ? " is-searchable" : ""}`}
           role="listbox"
         >
+          {searchable && (
+            <div className="custom-select-search" onMouseDown={(e) => e.stopPropagation()}>
+              <Search size={12} />
+              <input
+                ref={searchRef}
+                type="search"
+                className="custom-select-search-input"
+                placeholder={searchPlaceholder}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Enter" && visibleOptions[0]) {
+                    e.preventDefault();
+                    handleSelect(visibleOptions[0].value);
+                  }
+                }}
+              />
+            </div>
+          )}
           <div className="custom-select-menu-inner">
-            {normalizedOptions.map((opt) => {
+            {visibleOptions.length === 0 ? (
+              <div className="custom-select-empty">No matches</div>
+            ) : (
+              visibleOptions.map((opt) => {
               const isSelected = opt.value === value;
               return (
                 <button
@@ -119,7 +164,8 @@ export function CustomSelect({
                   {isSelected && <Check size={13} className="custom-select-check" />}
                 </button>
               );
-            })}
+            })
+            )}
           </div>
         </div>
       )}

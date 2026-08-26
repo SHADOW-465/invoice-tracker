@@ -2,11 +2,22 @@ import React, { useMemo, useState } from "react";
 import { BarChart3, PieChart } from "lucide-react";
 import { calculateFinancialMetrics, formatCurrency, getChartYears, buildChartSeries } from "../utils/calculations";
 import { CustomSelect } from "./CustomSelect";
+import { TrendChart } from "./TrendChart";
 
 export function AnalyticsCharts({ store }) {
+  const [chartClient, setChartClient] = useState("all");
+
+  const chartInvoices = useMemo(() => {
+    if (chartClient === "all") return store.invoices || [];
+    const key = String(chartClient).trim().toLowerCase();
+    return (store.invoices || []).filter(
+      (inv) => String(inv.clientName || "").trim().toLowerCase() === key
+    );
+  }, [store.invoices, chartClient]);
+
   const metrics = useMemo(() => {
-    return calculateFinancialMetrics(store.invoices, store.baseCurrency, store.settings?.exchangeRates);
-  }, [store.invoices, store.baseCurrency, store.settings?.exchangeRates]);
+    return calculateFinancialMetrics(chartInvoices, store.baseCurrency, store.settings?.exchangeRates);
+  }, [chartInvoices, store.baseCurrency, store.settings?.exchangeRates]);
 
   const currencyEntries = useMemo(() => {
     return Object.entries(metrics.currencyBreakdown || {});
@@ -27,19 +38,18 @@ export function AnalyticsCharts({ store }) {
     ];
   }, [chartYears]);
 
+  const clientOptions = useMemo(() => {
+    const names = store.availableClients || [];
+    return [
+      { value: "all", label: "All clients" },
+      ...names.map((name) => ({ value: name, label: name }))
+    ];
+  }, [store.availableClients]);
+
   const chartSeries = useMemo(
     () => buildChartSeries(metrics.monthlyData, activeYear),
     [metrics.monthlyData, activeYear]
   );
-
-  const maxMonthlyVal = useMemo(() => {
-    if (chartSeries.length === 0) return 1000;
-    const maxVal = Math.max(
-      ...chartSeries.map((d) => Math.max(d.invoiced, d.received)),
-      100
-    );
-    return maxVal * 1.15;
-  }, [chartSeries]);
 
   return (
     <section className="analytics-section" aria-label="Financial Visualizations">
@@ -50,9 +60,21 @@ export function AnalyticsCharts({ store }) {
             <BarChart3 size={15} color="var(--brand-primary)" />
             <span>
               {activeYear === "all" ? "Yearly" : "Monthly"} amounts billed vs collected ({store.baseCurrency})
+              {chartClient !== "all" ? ` · ${chartClient}` : ""}
             </span>
           </h3>
           <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", fontSize: "0.7rem", color: "var(--ink-muted)" }}>
+            <CustomSelect
+              value={chartClient}
+              onChange={(val) => {
+                setChartClient(val);
+                setChartYear("latest");
+              }}
+              options={clientOptions}
+              size="sm"
+              searchable
+              searchPlaceholder="Search clients"
+            />
             {chartYears.length > 0 && (
               <CustomSelect
                 value={activeYear === "all" ? "all" : String(activeYear)}
@@ -72,58 +94,9 @@ export function AnalyticsCharts({ store }) {
           </div>
         </div>
         <p style={{ margin: "0 0 0.35rem", fontSize: "0.68rem", color: "var(--ink-muted)" }}>
-          Bar height is {store.baseCurrency} value, not invoice count. Billed uses the invoice date; collected uses the payment date.
+          Amounts in {store.baseCurrency}. Billed uses the invoice date; collected uses the payment date.
         </p>
-
-        {chartSeries.length === 0 ? (
-          <div style={{ padding: "1.5rem", textAlign: "center", color: "var(--ink-muted)", fontSize: "var(--text-xs)" }}>
-            No invoice data available
-          </div>
-        ) : (
-          <div style={{ height: "150px", display: "flex", alignItems: "flex-end", gap: chartSeries.length > 12 ? "0.35rem" : "1.25rem", padding: "0.5rem 0" }}>
-            {chartSeries.map((item, idx) => {
-              const invoicedScale = Math.max(6 / 120, item.invoiced / maxMonthlyVal);
-              const receivedScale = Math.max(6 / 120, item.received / maxMonthlyVal);
-
-              return (
-                <div
-                  key={idx}
-                  style={{
-                    flex: 1,
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    gap: "0.35rem",
-                    height: "100%",
-                    justifyContent: "flex-end"
-                  }}
-                >
-                  <div style={{ display: "flex", gap: "4px", alignItems: "flex-end", height: "120px" }}>
-                    <div
-                      className="analytics-bar"
-                      title={`${item.label} billed ${formatCurrency(item.invoiced, store.baseCurrency)} (${item.count} invoices)`}
-                      style={{
-                        "--bar-scale": invoicedScale,
-                        backgroundColor: "var(--chart-bar-invoiced)"
-                      }}
-                    />
-                    <div
-                      className="analytics-bar"
-                      title={`${item.label} collected ${formatCurrency(item.received, store.baseCurrency)} (by payment date)`}
-                      style={{
-                        "--bar-scale": receivedScale,
-                        backgroundColor: "var(--chart-bar-collected)"
-                      }}
-                    />
-                  </div>
-                  <span style={{ fontSize: "0.7rem", fontWeight: 600, color: "var(--ink-secondary)", whiteSpace: "nowrap" }}>
-                    {item.label}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <TrendChart series={chartSeries} currency={store.baseCurrency} />
       </div>
 
       {/* 2. Currency Breakdown */}
